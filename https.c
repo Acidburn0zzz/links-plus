@@ -25,7 +25,39 @@
 
 #ifdef HAVE_SSL
 
+#define VERIFY_DEPTH	10
+
 static SSL_CTX *context = NULL;
+
+static int verify_cert(int code, X509_STORE_CTX *context)
+{
+	int error, depth;
+
+	error = X509_STORE_CTX_get_error(context);
+	depth = X509_STORE_CTX_get_error_depth(context);
+
+	if (depth > VERIFY_DEPTH) {
+		error = X509_V_ERR_CERT_CHAIN_TOO_LONG;
+		code = 0;
+	}
+
+	if (!code) {
+		/* Judge self signed certificates as acceptable. */
+		if (error == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN ||
+				error == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT) {
+			code = 1;
+		} else {
+			fprintf(stderr, "Verification failure: %s\n",
+						X509_verify_cert_error_string(error));
+			if (depth > VERIFY_DEPTH) {
+				fprintf(stderr, "Excessive depth %d, set depth %d.\n",
+							depth, VERIFY_DEPTH);
+			}
+		}
+	}
+
+	return code;
+} /* verify_cert */
 
 SSL *getSSL(void)
 {
@@ -36,11 +68,8 @@ SSL *getSSL(void)
 		unsigned os_pool_size;
 
 		const unsigned char *f = (const unsigned char *)RAND_file_name(cast_char f_randfile, sizeof(f_randfile));
-		if (f && RAND_egd(cast_const_char f) < 0) {
-			/* Not an EGD, so read and write to it */
-			if (RAND_load_file(cast_const_char f_randfile, -1))
-				RAND_write_file(cast_const_char f_randfile);
-		}
+		if (RAND_load_file(cast_const_char f_randfile, -1))
+			RAND_write_file(cast_const_char f_randfile);
 
 		os_seed_random(&os_pool, &os_pool_size);
 		if (os_pool_size) RAND_add(os_pool, os_pool_size, os_pool_size);
@@ -62,8 +91,10 @@ SSL *getSSL(void)
 		if (!m) return NULL;
 		context = SSL_CTX_new((void *)m);
 		if (!context) return NULL;
-		SSL_CTX_set_options(context, SSL_OP_ALL);
+		SSL_CTX_set_options(context, SSL_OP_NO_SSLv2 | SSL_OP_ALL);
+		SSL_CTX_set_mode(context, SSL_MODE_AUTO_RETRY);
 		SSL_CTX_set_default_verify_paths(context);
+		SSL_CTX_set_verify(context, SSL_VERIFY_PEER, verify_cert);
 
 	}
 	return (SSL_new(context));
