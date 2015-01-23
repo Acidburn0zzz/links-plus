@@ -2151,6 +2151,7 @@ static unsigned char * const html_texts_g[] = {
 	TEXT_(T_DISPLAY_IMAGE_FILENAMES),
 	TEXT_(T_DISPLAY_IMAGES),
 	TEXT_(T_AUTO_REFRESH),
+    TEXT_(T_ALLOW_COOKIES),
 	TEXT_(T_TARGET_IN_NEW_WINDOW),
 	TEXT_(T_TEXT_MARGIN),
 	cast_uchar "",
@@ -2170,6 +2171,7 @@ static unsigned char * const html_texts[] = {
 	TEXT_(T_LINK_ORDER_BY_COLUMNS),
 	TEXT_(T_NUMBERED_LINKS),
 	TEXT_(T_AUTO_REFRESH),
+    TEXT_(T_ALLOW_COOKIES),
 	TEXT_(T_TARGET_IN_NEW_WINDOW),
 	TEXT_(T_TEXT_MARGIN),
 	cast_uchar "",
@@ -2258,6 +2260,10 @@ static void menu_html_options(struct terminal *term, void *xxx, struct session *
 	}
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].data = (unsigned char *) &ses->ds.auto_refresh;
+	d->items[a].dlen = sizeof(int);
+	a++;
+	d->items[a].type = D_CHECKBOX;
+	d->items[a].data = (unsigned char *) &ses->ds.allow_cookies;
 	d->items[a].dlen = sizeof(int);
 	a++;
 	d->items[a].type = D_CHECKBOX;

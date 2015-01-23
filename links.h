@@ -2433,6 +2433,7 @@ struct document_setup {
 	int margin;
 	int num_links, table_order;
 	int auto_refresh;
+    int allow_cookies;
 	int font_size;
 	int display_images;
 	int image_scale;
@@ -2465,6 +2466,7 @@ struct document_options {
 	int plain;
 	int num_links, table_order;
 	int auto_refresh;
+    int allow_cookies;
 	struct rgb default_fg;
 	struct rgb default_bg;
 	struct rgb default_link;
@@ -2498,6 +2500,7 @@ static inline void ds2do(struct document_setup *ds, struct document_options *doo
 	doo->num_links = ds->num_links;
 	doo->table_order = ds->table_order;
 	doo->auto_refresh = ds->auto_refresh;
+    doo->allow_cookies = ds->allow_cookies;
 	doo->font_size = ds->font_size;
 	doo->display_images = ds->display_images;
 	doo->image_scale = ds->image_scale;

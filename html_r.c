@@ -1317,6 +1317,7 @@ int compare_opt(struct document_options *o1, struct document_options *o2)
 	    o1->num_links == o2->num_links &&
 	    o1->table_order == o2->table_order &&
 	    o1->auto_refresh == o2->auto_refresh &&
+	    o1->allow_cookies == o2->allow_cookies &&
 	    o1->font_size == o2->font_size &&
 	    o1->display_images == o2->display_images &&
 	    o1->image_scale == o2->image_scale &&

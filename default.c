@@ -1845,6 +1845,9 @@ fprintf(stdout, "%s%s%s%s%s%s\n",
 " -html-auto-refresh <0>/<1>\n"
 "  Process refresh to other page (1), or display link to that page (0).\n"
 "\n"
+" -html-allow-cookies <0>/<1>\n"
+"  Allow cookies (1), or disallow all cookies (0).\n"
+"\n"
 " -html-target-in-new-window <0>/<1>\n"
 "  Allow opening new windows from html.\n"
 "\n"
@@ -2037,6 +2040,7 @@ struct document_setup dds = {
 	0, /* num_links */
 	0, /* table_order */
 	0, /* auto_refresh */
+    0, /* allow_cookies */
 	20, /* font_size */
 	1, /* display images */
 	100, /* image scale */
@@ -2171,6 +2175,7 @@ static struct option html_options[] = {
 	{1, gen_cmd, num_rd, num_wr, 0, 1, &dds.num_links, "html_numbered_links", "html-numbered-links"},
 	{1, gen_cmd, num_rd, num_wr, 0, 1, &dds.table_order, "html_table_order", "html-table-order"},
 	{1, gen_cmd, num_rd, num_wr, 0, 1, &dds.auto_refresh, "html_auto_refresh", "html-auto-refresh"},
+	{1, gen_cmd, num_rd, num_wr, 0, 1, &dds.allow_cookies, "html_allow_cookies", "html-allow-cookies"},
 	{1, gen_cmd, num_rd, num_wr, 1, MAX_FONT_SIZE, &dds.font_size, "html_font_size", "html-user-font-size"},
 	{1, gen_cmd, num_rd, num_wr, 0, 1, &dds.display_images, "html_display_images", "html-display-images"},
 	{1, gen_cmd, num_rd, num_wr, 1, 999, &dds.image_scale, "html_image_scale", "html-image-scale"},
