@@ -332,10 +332,9 @@ static void ssl_want_read(struct connection *c)
 	//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
 	printf("In ssl_want_read, before connect - host: %s\n", b->host);
-	//switch ((tls_err = tls_connect(c->tls, b->host, "443"))) {
 	switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
 		case 0:
-			// Success?
+			// Success
 			c->newconn = NULL;
 			b->func(c);
 			mem_free(b);
@@ -648,7 +647,6 @@ static void connected(struct connection *c)
 		//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
 		printf("In connected, before connect: host = %s\n", b->host);
-		//switch (tls_err = tls_connect(c->tls, b->host, NULL)) { // NULL port uses libtls default
 		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
 			case TLS_READ_AGAIN:
 				printf("  TLS_READ_AGAIN tls_err = %d\n", tls_err);
@@ -658,7 +656,7 @@ static void connected(struct connection *c)
 			case TLS_WRITE_AGAIN:
 				printf("  TLS_WRITE_AGAIN tls_err = %d\n", tls_err);
 				setcstate(c, S_SSL_NEG);
-				ssl_want_read(c); // Is this right???
+				ssl_want_read(c);
 				return;
 			case 0:
 				// Success
@@ -726,14 +724,13 @@ static void write_select(struct connection *c)
 	if (c->tls) {
 		printf("  calling tls_write: size = %d\n", wb->len - wb->pos);
 		if ((tls_err = tls_write(c->tls, wb->data + wb->pos, wb->len - wb->pos, wr)) < 0) {
-			printf(" tls_err = %d, wr = %d\n", tls_err, *wr);
+			printf(" tls_err = %d, wr = %d, more error = %s\n", tls_err, *wr, tls_error(c->tls));
 			if (tls_err == -1) {
 				// ERROR
 				setcstate(c, S_SSL_ERROR);
 				log_ssl_error(__LINE__, *wr, 0);
-				//abort_connection(c); // ???
 				printf("  error, call retry_connection\n");
-				retry_connection(c);
+				retry_connection(c); // FIXME: When to abort??
 				free(wr);
 				return;
 			} else {
@@ -842,7 +839,6 @@ read_more:
 		if ((tls_err = tls_read(c->tls, rb->data + rb->len, READ_SIZE, rd)) < 0) {
 			printf("  top: tls_err = %d, rd = %d\n", tls_err, *rd);
 			if (total_read) {
-				//FIXME: I think we hit this everytime we get < 0
 				printf("  total_read = %d\n", total_read);
 				goto success;
 			}
@@ -863,7 +859,7 @@ read_more:
 			setcstate(c, S_SSL_ERROR);
 			log_ssl_error(__LINE__, tls_err, 0);
 			printf("  -1, retrying\n");
-			retry_connection(c); // Or abort???
+			retry_connection(c); // FIXME: Or abort???
 			free(rd);
 			return;
 		}
