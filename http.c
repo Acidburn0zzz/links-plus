@@ -267,7 +267,6 @@ static void http_send_header(struct connection *c)
 		mem_free(h);
 		h = get_port_str(host);
 		if (!h) h = stracpy(cast_uchar "443");
-		printf("  port_string = %s\n", h);
 		add_chr_to_str(&hdr, &l, ':');
 		add_to_str(&hdr, &l, h);
 		mem_free(h);
@@ -319,7 +318,6 @@ static void http_send_header(struct connection *c)
 		add_to_str(&hdr, &l, h);
 		mem_free(h);
 		if ((h = get_port_str(host))) {
-			printf("In http_send_header: port_string = %s\n", h);
 			add_chr_to_str(&hdr, &l, ':');
 			add_to_str(&hdr, &l, h);
 			mem_free(h);

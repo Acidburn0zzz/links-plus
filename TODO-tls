@@ -1,4 +1,4 @@
-Use tls_error() to get error messages
+Use tls_error() to get error messages instead of generic SSL_ERROR in popup
 
 What is cache ssl_info?
 When to free tls
@@ -8,4 +8,4 @@ replace/change ssl_finish
 abort_connection
 log_ssl_error
 
-add port_str in url.c?
+x add port_str in url.c? (not needed, but shold have used sprintf like ftp.c)

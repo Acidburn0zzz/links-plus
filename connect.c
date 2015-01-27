@@ -140,7 +140,6 @@ struct conn_info {
 	int addr_index;
 	int first_error;
 	int port;
-	char *port_string;
 	int *sock;
 	int real_port;
 	int socks_byte_count;
@@ -155,7 +154,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	int as;
 	unsigned char *dns_append = cast_uchar "";
 	unsigned char *host;
-	unsigned char *port_string;
 	struct conn_info *b;
 	printf("In make_connection\n");
 	if (*c->socks_proxy) {
@@ -165,7 +163,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 		host = stracpy(p);
 		real_port = port;
 		port = 1080;
-		port_string = "1080";
 		if ((p = cast_uchar strchr(cast_const_char host, ':'))) {
 			long lp;
 			*p++ = 0;
@@ -179,8 +176,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 				return;
 			}
 			port = (int)lp;
-			port_string = get_port_str(host);
-			printf("*** make_connection - socks: port_string = %s\n", port_string);
 		}
 		dns_append = proxies.dns_append;
 	} else if (!(host = get_host_name(c->url))) {
@@ -197,7 +192,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	b->real_port = real_port;
 	b->host = (unsigned char *)(b + 1);
 	strcpy(cast_char b->host, cast_const_char host);
-	b->port_string = get_port_str(b->host); // Or use host?
 	b->dns_append = cast_uchar strchr(cast_const_char b->host, 0) + 1;
 	strcpy(cast_char b->dns_append, cast_const_char dns_append);
 	c->newconn = b;
@@ -585,7 +579,7 @@ static void connected(struct connection *c)
 	int err = 0;
 	socklen_t len = sizeof(int);
 	int rs;
-	printf("In connected, top: host = %s, port_string = %s, url = %d\n", b->host, b->port_string, *c->url);
+	printf("In connected, top: host = %s\n", b->host);
 #ifdef SO_ERROR
 	errno = 0;
 	EINTRLOOP(rs, getsockopt(*b->sock, SOL_SOCKET, SO_ERROR, (void *)&err, &len));

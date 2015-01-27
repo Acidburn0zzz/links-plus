@@ -190,41 +190,6 @@ unsigned char *get_port_str(unsigned char *url)
 	unsigned char *h, *p;
 	int hl;
 	if (parse_url(url, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &h, &hl, NULL, NULL, NULL)) return NULL;
-	printf ("In get_port_str hl = %d h = %s\n", hl, h);
-	/*
-	if (hl == 0) {
-		// No port in url, use protocol
-		// FIXME: add to parse_url and protocol struct
-		if ((p = get_protocol_name(url))) {
-			printf("Protocol: %s\n", p);
-			if (strcmp(p, "https") == 0) {
-				printf("Returning 443\n");
-				mem_free(p);
-				return memacpy("443", 3);
-			} else
-			if (strcmp(p, "http") == 0) {
-				printf("Returning 80\n");
-				mem_free(p);
-				return memacpy("80", 2);
-			} else
-			if (strcmp(p, "ftp") == 0) {
-				printf("Returning 21\n");
-				mem_free(p);
-				return memacpy("21", 2);
-			} else
-			if (strcmp(p, "proxy") == 0) {
-				printf("Returning 3128\n");
-				mem_free(p);
-				return memacpy("3128", 4);
-			} else
-			if (strcmp(p, "finger") == 0) {
-				printf("Returning 79\n");
-				mem_free(p);
-				return memacpy("79", 2);
-			}
-		}
-	}
-	*/
 	return hl ? memacpy(h, hl) : NULL;
 }
 
