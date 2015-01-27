@@ -1,0 +1,11 @@
+Use tls_error() to get error messages
+
+What is cache ssl_info?
+When to free tls
+When to free tls_config
+replace/change ssl_finish
+
+abort_connection
+log_ssl_error
+
+add port_str in url.c?

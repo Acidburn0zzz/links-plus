@@ -170,6 +170,7 @@ void http_func(struct connection *c)
 {
 	/*setcstate(c, S_CONN);*/
 	/*set_connection_timeout(c);*/
+	printf("In http_func\n");
 	if (get_keepalive_socket(c, NULL)) {
 		int p;
 		if ((p = get_port(c->url)) == -1) {
@@ -177,10 +178,13 @@ void http_func(struct connection *c)
 			abort_connection(c);
 			return;
 		}
+		printf("  calling make_connection with http_send_header\n");
 		make_connection(c, p, &c->sock1, http_send_header);
 	} else {
+		printf("  calling http_send_header\n");
 		http_send_header(c);
 	}
+	printf("..leaving http_func\n");
 }
 
 void proxy_func(struct connection *c)
@@ -204,6 +208,7 @@ static void add_url_to_str(unsigned char **str, int *l, unsigned char *url)
 
 static void http_send_header(struct connection *c)
 {
+	printf("In http_send_header\n");
 	struct http_connection_info *info;
 	int http10 = http_options.http10 && !SCRUB_HEADERS;
 	int proxy;
@@ -225,12 +230,15 @@ static void http_send_header(struct connection *c)
 	info = mem_calloc(sizeof(struct http_connection_info));
 	c->info = info;
 #ifdef HAVE_SSL
-	info->https_forward = !c->ssl && proxy && host && !casecmp(host, cast_uchar "https://", 8);
-	if (c->ssl) proxy = 0;
+	//info->https_forward = !c->ssl && proxy && host && !casecmp(host, cast_uchar "https://", 8);
+	info->https_forward = !c->tls && proxy && host && !casecmp(host, cast_uchar "https://", 8);
+	//if (c->ssl) proxy = 0;
+	if (c->tls) proxy = 0;
 #endif
 	info->send_close = info->https_forward || http10 || (post && http_options.bug_post_no_keepalive)
 #ifdef HAVE_SSL
-		|| c->ssl
+		|| c->tls
+		//|| c->ssl
 #endif
 		;
 	hdr = init_str();
@@ -259,6 +267,7 @@ static void http_send_header(struct connection *c)
 		mem_free(h);
 		h = get_port_str(host);
 		if (!h) h = stracpy(cast_uchar "443");
+		printf("  port_string = %s\n", h);
 		add_chr_to_str(&hdr, &l, ':');
 		add_to_str(&hdr, &l, h);
 		mem_free(h);
@@ -310,6 +319,7 @@ static void http_send_header(struct connection *c)
 		add_to_str(&hdr, &l, h);
 		mem_free(h);
 		if ((h = get_port_str(host))) {
+			printf("In http_send_header: port_string = %s\n", h);
 			add_chr_to_str(&hdr, &l, ':');
 			add_to_str(&hdr, &l, h);
 			mem_free(h);
@@ -346,9 +356,11 @@ static void http_send_header(struct connection *c)
 			post += 2;
 		}
 	}
+	printf("  writing to socket... setting write_func to http_get_header\n");
 	write_to_socket(c, c->sock1, hdr, l, http_get_header);
 	mem_free(hdr);
 	setcstate(c, S_SENT);
+	printf("..leaving http_send_header\n");
 }
 
 static void add_user_agent(unsigned char **hdr, int *l)
@@ -704,6 +716,7 @@ static int is_line_in_buffer(struct read_buffer *rb)
 
 static void read_http_data(struct connection *c, struct read_buffer *rb)
 {
+	printf("In read_http_data\n");
 	struct http_connection_info *info = c->info;
 	int a;
 	set_connection_timeout(c);
@@ -802,6 +815,7 @@ static void read_http_data(struct connection *c, struct read_buffer *rb)
 		}
 	}
 	read_more:
+	printf("  calling read_from_socket, set func to read_http_data\n");
 	read_from_socket(c, c->sock1, rb, read_http_data);
 	setcstate(c, S_TRANS);
 }
@@ -834,6 +848,7 @@ static int get_header(struct read_buffer *rb)
 
 static void http_got_header(struct connection *c, struct read_buffer *rb)
 {
+	printf("In http_got_header\n");
 	off_t cf;
 	int state = c->state != S_PROC ? S_GETH : S_PROC;
 	unsigned char *head;
@@ -914,7 +929,9 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		mem_free(head);
 		mem_free(c->info);
 		c->info = 0;
-		c->ssl = DUMMY;
+		c->tls = DUMMY;
+		//c->ssl = DUMMY;
+		printf("  call continue_connection with http_send_header\n");
 		continue_connection(c, &c->sock1, http_send_header);
 		return;
 	}
@@ -951,6 +968,7 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		}
 		mem_free(head);
 		setcstate(c, S_RESTART);
+		printf("  retrying??\n");
 		retry_connection(c);
 		return;
 	}
@@ -997,15 +1015,19 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		mem_free(d);
 	}
 #ifdef HAVE_SSL
-	if (c->ssl) {
+	//if (c->ssl) {
+	if (c->tls) {
 		int l = 0;
 		if (e->ssl_info) mem_free(e->ssl_info);
 		e->ssl_info = init_str();
-		add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->ssl, NULL));
-		add_to_str(&e->ssl_info, &l, cast_uchar "-bit ");
-		add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->ssl));
-		add_to_str(&e->ssl_info, &l, cast_uchar " ");
-		add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->ssl));
+		//add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->tls, NULL));
+		////add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->ssl, NULL));
+		//add_to_str(&e->ssl_info, &l, cast_uchar "-bit ");
+		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->tls));
+		////add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->ssl));
+		//add_to_str(&e->ssl_info, &l, cast_uchar " ");
+		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->tls));
+		////add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->ssl));
 	}
 #endif
 	if (e->redirect) mem_free(e->redirect), e->redirect = NULL;
@@ -1121,14 +1143,19 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		truncate_entry(e, c->from, 0);
 	}
 
+	printf("  call read_http_data\n");
 	read_http_data(c, rb);
+	printf("..leaving http_got_header\n");
 }
 
 static void http_get_header(struct connection *c)
 {
+	printf("In http_get_header\n");
 	struct read_buffer *rb;
 	set_connection_timeout(c);
 	if (!(rb = alloc_read_buffer(c))) return;
 	rb->close = 1;
+	printf("  calling read_from_socket, setting func to http_got_header\n");
 	read_from_socket(c, c->sock1, rb, http_got_header);
+	printf("..leaving http_get_header\n");
 }

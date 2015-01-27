@@ -193,8 +193,9 @@
 #if defined(OPENVMS) && defined(__VAX)
 #define OPENSSL_NO_SHA512
 #endif
-#include <openssl/ssl.h>
+//#include <openssl/ssl.h>
 #include <openssl/rand.h>
+#include <tls.h>
 #endif
 #ifdef HAVE_NSS
 #include <nss_compat_ossl/nss_compat_ossl.h>
@@ -1057,8 +1058,10 @@ struct connection {
 	int detached;
 	unsigned char socks_proxy[MAX_STR_LEN];
 #ifdef HAVE_SSL
-	SSL *ssl;
-	int no_tsl;
+	//SSL *ssl;
+	//int no_tsl;
+	struct tls_config *tls_config;
+	struct tls *tls;
 #endif
 };
 
@@ -1321,7 +1324,7 @@ void proxy_func(struct connection *);
 void https_func(struct connection *c);
 #ifdef HAVE_SSL
 void ssl_finish(void);
-SSL *getSSL(void);
+//SSL *getSSL(void);
 #endif
 
 /* data.c */
