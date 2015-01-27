@@ -56,7 +56,6 @@ void portable_sleep(unsigned msec)
 
 int can_write(int fd)
 {
-	printf("In can_write\n");
 	fd_set fds;
 	struct timeval tv = {0, 0};
 	int rs;
@@ -74,7 +73,6 @@ int can_write(int fd)
 
 int can_read_timeout(int fd, int sec)
 {
-	printf("In can_read_timeout\n");
 	fd_set fds;
 	struct timeval tv;
 	int rs;
@@ -94,14 +92,12 @@ int can_read_timeout(int fd, int sec)
 
 int can_read(int fd)
 {
-	printf("In can_read\n");
 	return can_read_timeout(fd, 0);
 }
 
 
 unsigned long select_info(int type)
 {
-	printf("In select_info\n");
 	int i = 0, j;
 	struct cache_entry *ce;
 	switch (type) {
@@ -519,7 +515,6 @@ int terminate_loop = 0;
 
 void select_loop(void (*init)(void))
 {
-	printf("In select_loop\n");
 	struct stat st;
 	int rs;
 	EINTRLOOP(rs, stat(".", &st));
@@ -581,7 +576,6 @@ void select_loop(void (*init)(void))
 		memcpy(&x_error, &w_error, sizeof(fd_set));
 		/*rep_sel:*/
 		if (terminate_loop) {
-			printf("  terminating select loop\n");
 			break;
 		}
 		if (!w_max && list_empty(timers)) {
@@ -604,28 +598,22 @@ void select_loop(void (*init)(void))
 #ifdef DEBUG_CALLS
 		fprintf(stderr, "select\n");
 #endif
-		printf("  if loop_select: timeout = %d\n", tm ? tm->tv_sec : 999 );
 		if ((n = loop_select(w_max, &x_read, &x_write, &x_error, tm)) < 0) {
 #ifdef DEBUG_CALLS
 			fprintf(stderr, "select intr\n");
 #endif
-			printf("  loop_select negative, returned: %d\n", n);
 			if (errno != EINTR) {
 				fatal_exit("ERROR: select failed: %s", strerror(errno));
 			}
 			continue;
 		}
-		printf("  loop_select returned: %d\n", n);
 #ifdef DEBUG_CALLS
 		fprintf(stderr, "select done\n");
 #endif
-		printf("  checking signals\n");
 		check_signals();
 		/*printf("sel: %d\n", n);*/
-		printf("  checking timers\n");
 		check_timers();
 		i = -1;
-		printf("  start while loop to %d\n", w_max);
 		while (n > 0 && ++i < w_max) {
 			int k = 0;
 			/*printf("C %d : %d,%d,%d\n",i,FD_ISSET(i, &w_read),FD_ISSET(i, &w_write),FD_ISSET(i, &w_error));
@@ -635,9 +623,7 @@ void select_loop(void (*init)(void))
 #ifdef DEBUG_CALLS
 					fprintf(stderr, "call: read %d -> %p\n", i, threads[i].read_func);
 #endif
-					printf("  call: read %d -> %p\n", i, threads[i].read_func);
 					pr(threads[i].read_func(threads[i].data)) continue;
-					printf("  read done\n");
 #ifdef DEBUG_CALLS
 					fprintf(stderr, "read done\n");
 #endif
@@ -650,9 +636,7 @@ void select_loop(void (*init)(void))
 #ifdef DEBUG_CALLS
 					fprintf(stderr, "call: write %d -> %p\n", i, threads[i].write_func);
 #endif
-					printf("  call: write %d -> %p\n", i, threads[i].write_func);
 					pr(threads[i].write_func(threads[i].data)) continue;
-					printf("  write done\n");
 #ifdef DEBUG_CALLS
 					fprintf(stderr, "write done\n");
 #endif
@@ -665,9 +649,7 @@ void select_loop(void (*init)(void))
 #ifdef DEBUG_CALLS
 					fprintf(stderr, "call: error %d -> %p\n", i, threads[i].error_func);
 #endif
-					printf("  call: error %d -> %p\n", i, threads[i].error_func);
 					pr(threads[i].error_func(threads[i].data)) continue;
-					printf("  error done\n");
 #ifdef DEBUG_CALLS
 					fprintf(stderr, "error done\n");
 #endif
@@ -677,14 +659,10 @@ void select_loop(void (*init)(void))
 			}
 			n -= k;
 		}
-		printf("  end while loop\n");
-		printf("  call nopr\n");
 		nopr();
 	}
 #ifdef DEBUG_CALLS
 	fprintf(stderr, "exit loop\n");
 #endif
-	printf("  call nopr\n");
 	nopr();
-	printf("..leaving select_loop\n");
 }

@@ -180,7 +180,6 @@ void abort_all_keepalive_connections(void)
 
 static void free_connection_data(struct connection *c)
 {
-	printf("In free_connection_data\n");
 	struct h_conn *h;
 	int rs;
 	if (c->sock1 != -1) set_handlers(c->sock1, NULL, NULL, NULL, NULL);
@@ -360,11 +359,9 @@ static void sort_queue(void)
 
 static void interrupt_connection(struct connection *c)
 {
-	printf("In interrupt_connection\n");
 #ifdef HAVE_SSL
 	if (c->tls == (void *)-1) c->tls = NULL;
 	if (c->tls) {
-		printf("  cleaning up tls\n");
 		tls_close(c->tls);
 		tls_free(c->tls);
 		c->tls = NULL;
@@ -378,7 +375,6 @@ static void interrupt_connection(struct connection *c)
 	//	c->ssl = NULL;
 	//}
 #endif
-	printf("  cleaning up sockets\n");
 	if (c->sock1 != -1) set_handlers(c->sock1, NULL, NULL, NULL, NULL);
 	close_socket(&c->sock1);
 	free_connection_data(c);
@@ -417,7 +413,6 @@ static void run_connection(struct connection *c)
 {
 	struct h_conn *hc;
 	void (*func)(struct connection *);
-	printf("In run_connection\n");
 	if (c->running) {
 		internal("connection already running");
 		return;
@@ -450,9 +445,7 @@ static void run_connection(struct connection *c)
 	hc->conn++;
 	active_connections++;
 	c->running = 1;
-	printf("  calling proto handler\n");
 	func(c);
-	printf("..leaving run_connection\n");
 }
 
 static int is_connection_seekable(struct connection *c)
@@ -496,7 +489,6 @@ int is_last_try(struct connection *c)
 
 void retry_connection(struct connection *c)
 {
-	printf("In retry_connection\n");
 	interrupt_connection(c);
 	if (!is_connection_restartable(c)) {
 		del_connection(c);
@@ -523,7 +515,6 @@ void abort_connection(struct connection *c)
 
 static int try_connection(struct connection *c)
 {
-	printf("In try_connection\n");
 	struct h_conn *hc = NULL;
 	if ((hc = is_host_on_list(c))) {
 		if (hc->conn >= max_connections_to_host) {
@@ -535,9 +526,7 @@ static int try_connection(struct connection *c)
 		if (try_to_suspend_connection(c, NULL)) return 0;
 		else return -1;
 	}
-	printf("  calling run_conection\n");
 	run_connection(c);
-	printf("..return from run_connection\n");
 	return 1;
 }
 
@@ -578,7 +567,6 @@ static void check_queue_bugs(void)
 
 void check_queue(void *dummy)
 {
-	printf("In check_queue\n");
 	struct connection *c;
 	again:
 	c = queue.next;
@@ -598,7 +586,6 @@ void check_queue(void *dummy)
 		for (d = c; d != (struct connection *)(void *)&queue && getpri(d) == cp;) {
 			struct connection *dd = d; d = d->next;
 			if (!dd->state) {
-				printf("  calling try_connection\n");
 				if (try_connection(dd)) goto again;
 			}
 		}

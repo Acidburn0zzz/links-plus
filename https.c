@@ -108,7 +108,6 @@ void https_func(struct connection *c)
 {
 	//c->ssl = DUMMY;
 	c->tls = DUMMY;
-	printf("In https_func, calling http_func tls = %d\n", c->tls);
 	http_func(c);
 }
 

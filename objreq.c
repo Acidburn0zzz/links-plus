@@ -134,7 +134,6 @@ static int auth_window(struct object_request *rq, unsigned char *realm)
 		host = get_host_name(rq->url);
 		if (!host) return -1;
 		if ((port = get_port_str(rq->url))) {
-			printf("In auth_window: port_string = %s\n", port);
 			add_to_strn(&host, cast_uchar ":");
 			add_to_strn(&host, port);
 			mem_free(port);

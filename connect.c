@@ -155,7 +155,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	unsigned char *dns_append = cast_uchar "";
 	unsigned char *host;
 	struct conn_info *b;
-	printf("In make_connection\n");
 	if (*c->socks_proxy) {
 		unsigned char *p = cast_uchar strchr(cast_const_char c->socks_proxy, '@');
 		if (p) p++;
@@ -198,7 +197,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	log_data(cast_uchar "\nCONNECTION: ", 13);
 	log_data(host, strlen(cast_const_char host));
 	log_data(cast_uchar "\n", 1);
-	printf("  calling dns_found\n");
 	if (c->no_cache >= NC_RELOAD) as = find_host_no_cache(host, &b->addr, &c->dnsquery, (void(*)(void *, int))dns_found, c);
 	else as = find_host(host, &b->addr, &c->dnsquery, (void(*)(void *, int))dns_found, c);
 	mem_free(host);
@@ -331,7 +329,6 @@ static void ssl_want_read(struct connection *c)
 #ifndef HAVE_NSS
 	//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-	printf("In ssl_want_read, before connect - host: %s\n", b->host);
 	switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
 		case 0:
 			// Success
@@ -475,7 +472,6 @@ static void dns_found(struct connection *c, int state)
 		abort_connection(c);
 		return;
 	}
-	printf("In dns_found, calling try_connect\n");
 	try_connect(c);
 }
 
@@ -499,7 +495,6 @@ static void try_connect(struct connection *c)
 	int rs;
 	struct conn_info *b = c->newconn;
 	struct host_address *addr = &b->addr.a[b->addr_index];
-	printf("In try_connect\n");
 	if (addr->af == AF_INET) {
 		s = socket_and_bind(PF_INET, bind_ip_address);
 #ifdef SUPPORT_IPV6
@@ -548,12 +543,9 @@ static void try_connect(struct connection *c)
 			retry_connect(c, get_error_from_errno(errno));
 			return;
 		}
-		printf("  setting connected callback\n");
 		set_handlers(s, NULL, (void(*)(void *))connected, (void(*)(void *))exception, c);
-		printf("    done\n");
 		setcstate(c, !b->addr_index ? S_CONN : S_CONN_ANOTHER);
 	} else {
-		printf("  calling connected\n");
 		connected(c);
 	}
 }
@@ -578,7 +570,6 @@ static void connected(struct connection *c)
 	int err = 0;
 	socklen_t len = sizeof(int);
 	int rs;
-	printf("In connected, top: host = %s\n", b->host);
 #ifdef SO_ERROR
 	errno = 0;
 	EINTRLOOP(rs, getsockopt(*b->sock, SOL_SOCKET, SO_ERROR, (void *)&err, &len));
@@ -646,24 +637,19 @@ static void connected(struct connection *c)
 #ifndef HAVE_NSS
 		//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-		printf("In connected, before connect: host = %s\n", b->host);
 		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
 			case TLS_READ_AGAIN:
-				printf("  TLS_READ_AGAIN tls_err = %d\n", tls_err);
 				setcstate(c, S_SSL_NEG);
 				ssl_want_read(c);
 				return;
 			case TLS_WRITE_AGAIN:
-				printf("  TLS_WRITE_AGAIN tls_err = %d\n", tls_err);
 				setcstate(c, S_SSL_NEG);
 				ssl_want_read(c);
 				return;
 			case 0:
 				// Success
-				printf("  zero tls_err = %d\n", tls_err);
 				break;
 			default:
-				printf("  default tls_err = %d\n", tls_err);
 				log_ssl_error(__LINE__, tls_err, 0);
 				setcstate(c, S_SSL_ERROR);
 				retry_connection(c);
@@ -705,7 +691,6 @@ struct write_buffer {
 
 static void write_select(struct connection *c)
 {
-	printf("In write_select\n");
 	struct write_buffer *wb;
 	int tls_err;
 	size_t *wr = malloc(sizeof(size_t));
@@ -722,14 +707,11 @@ static void write_select(struct connection *c)
 
 #ifdef HAVE_SSL
 	if (c->tls) {
-		printf("  calling tls_write: size = %d\n", wb->len - wb->pos);
 		if ((tls_err = tls_write(c->tls, wb->data + wb->pos, wb->len - wb->pos, wr)) < 0) {
-			printf(" tls_err = %d, wr = %d, more error = %s\n", tls_err, *wr, tls_error(c->tls));
 			if (tls_err == -1) {
 				// ERROR
 				setcstate(c, S_SSL_ERROR);
 				log_ssl_error(__LINE__, *wr, 0);
-				printf("  error, call retry_connection\n");
 				retry_connection(c); // FIXME: When to abort??
 				free(wr);
 				return;
@@ -739,7 +721,6 @@ static void write_select(struct connection *c)
 				return;
 			}
 		}
-		printf(" tls_err = %d, wr = %d\n", tls_err, *wr);
 	} else
 	//if(c->ssl) {
 		//if ((wr = SSL_write(c->ssl, wb->data + wb->pos, wb->len - wb->pos)) <= 0) {
@@ -773,24 +754,19 @@ static void write_select(struct connection *c)
 		}
 	}
 
-	printf("  position = %d, length = %d\n", wb->pos, wb->len);
 	if ((wb->pos += *wr) == wb->len) {
 		void (*f)(struct connection *) = wb->done;
 		c->buffer = NULL;
 		set_handlers(wb->sock, NULL, NULL, NULL, NULL);
 		mem_free(wb);
-		printf("  call f to start reading?\n");
 		f(c);
-		printf("  ...maybe\n");
 	}
 	free(wr);
-	printf("  end of write_select\n");
 
 }
 
 void write_to_socket(struct connection *c, int s, unsigned char *data, int len, void (*write_func)(struct connection *))
 {
-	printf("In write_to_socket\n");
 	struct write_buffer *wb;
 	log_data(data, len);
 	if ((unsigned)len > MAXINT - sizeof(struct write_buffer)) overalloc();
@@ -802,9 +778,7 @@ void write_to_socket(struct connection *c, int s, unsigned char *data, int len, 
 	memcpy(wb->data, data, len);
 	if (c->buffer) mem_free(c->buffer);
 	c->buffer = wb;
-	printf("  set handler write select\n");
 	set_handlers(s, NULL, (void (*)(void *))write_select, (void (*)(void *))exception, c);
-	printf("..leaving write_to_socket\n");
 }
 
 #define READ_SIZE	64240
@@ -812,13 +786,11 @@ void write_to_socket(struct connection *c, int s, unsigned char *data, int len, 
 
 static void read_select(struct connection *c)
 {
-	printf("In read_select\n");
 	int total_read = 0;
 	struct read_buffer *rb;
 	int tls_err;
 	size_t *rd = malloc(sizeof(size_t));
 	*rd = 0;
-	printf ("  rd = %d\n", *rd);
 	if (!(rb = c->buffer)) {
 		internal("read socket has no buffer");
 		setcstate(c, S_INTERNAL);
@@ -835,15 +807,11 @@ read_more:
 
 #ifdef HAVE_SSL
 	if (c->tls) {
-		printf("  tls_read: READ_SIZE = %d, rd = %d\n", READ_SIZE, *rd);
 		if ((tls_err = tls_read(c->tls, rb->data + rb->len, READ_SIZE, rd)) < 0) {
-			printf("  top: tls_err = %d, rd = %d\n", tls_err, *rd);
 			if (total_read) {
-				printf("  total_read = %d\n", total_read);
 				goto success;
 			}
 			if (tls_err == TLS_READ_AGAIN) {
-				printf("  READ_AGAIN\n");
 				read_from_socket(c, rb->sock, rb, rb->done);
 				free(rd);
 				return;
@@ -852,18 +820,15 @@ read_more:
 				rb->close = 2;
 				rb->done(c, rb);
 				free(rd);
-				printf("  close and -1\n");
 				return;
 			}
 			// ERROR
 			setcstate(c, S_SSL_ERROR);
 			log_ssl_error(__LINE__, tls_err, 0);
-			printf("  -1, retrying\n");
 			retry_connection(c); // FIXME: Or abort???
 			free(rd);
 			return;
 		}
-		printf("  bottom: tls_err = %d, rd = %d\n", tls_err, *rd);
 	} else
 	//if (c->ssl) {
 		//if ((rd = SSL_read(c->ssl, rb->data + rb->len, READ_SIZE)) <= 0) {
@@ -890,7 +855,6 @@ read_more:
 #endif
 	{
 		EINTRLOOP(*rd, (int)read(rb->sock, rb->data + rb->len, READ_SIZE));
-		printf("  socket read rd = %d\n", *rd);
 		if (*rd <= 0) {
 			if (total_read) goto success;
 			if (rb->close && !*rd) {
@@ -933,35 +897,28 @@ read_more:
 #endif
 	    ) && total_read <= TOTAL_READ) {
 		if (can_read(rb->sock)) {
-			printf("  read moar: rd = %d, READ_SIZE = %d, total_read = %d, TOTAL_READ = %d\n", *rd, READ_SIZE, total_read, TOTAL_READ);
 			goto read_more;
 		}
 	}
 success:
 	free(rd);
-	printf("  success, calling done function\n");
 	rb->done(c, rb);
 }
 
 struct read_buffer *alloc_read_buffer(struct connection *c)
 {
-	printf("In alloc_read_buffer\n");
 	struct read_buffer *rb;
 	rb = mem_alloc(sizeof(struct read_buffer) + READ_SIZE);
 	memset(rb, 0, sizeof(struct read_buffer));
-	printf("..return from alloc_read_buffer\n");
 	return rb;
 }
 
 void read_from_socket(struct connection *c, int s, struct read_buffer *buf, void (*read_func)(struct connection *, struct read_buffer *))
 {
-	printf("In read_from_socket\n");
-	printf("  setting done to read_func\n");
 	buf->done = read_func;
 	buf->sock = s;
 	if (c->buffer && buf != c->buffer) mem_free(c->buffer);
 	c->buffer = buf;
-	printf("  setting read_select handler\n");
 	set_handlers(s, (void (*)(void *))read_select, NULL, (void (*)(void *))exception, c);
 }
 
