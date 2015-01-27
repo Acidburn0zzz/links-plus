@@ -1,11 +1,12 @@
 Use tls_error() to get error messages instead of generic SSL_ERROR in popup
 
 What is cache ssl_info?
-When to free tls
+
+When to free tls - print out tls_free call, make sure called after connection, on kill connection, and on exit?
 When to free tls_config
 replace/change ssl_finish
 
-abort_connection
-log_ssl_error
+When to abort_connection instead of retry?  I think tls masks the way this was handled with SSL
+Remove log_ssl_error, or replace with tls error
 
-x add port_str in url.c? (not needed, but shold have used sprintf like ftp.c)
+x add port_str in url.c? (not needed, but should have used sprintf like ftp.c)
