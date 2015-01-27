@@ -1,3 +1,5 @@
+Make configure find, include libtls
+
 Use tls_error() to get error messages instead of generic SSL_ERROR in popup
 
 What is cache ssl_info?
