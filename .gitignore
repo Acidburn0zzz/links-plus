@@ -1,2 +1,10 @@
+Makefile
+config.cache
+config.h
+config.log
+config.status
+intl-bak/
+links
+stamp-h
 *.o
 *.swp
