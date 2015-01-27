@@ -626,8 +626,6 @@ static void connected(struct connection *c)
 			retry_connection(c);
 			return;
 		}
-		// FIXME: Do i need to attach to a socket???
-		
 
 		//c->ssl = getSSL();
 		//if (!c->ssl) {
