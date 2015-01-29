@@ -1,14 +1,16 @@
 Make configure find, include libtls
 
+SSL verification over SOCKS (check proxies, too).
+
+Unbreak NSS - remove it.  No good disabling TLS with libtls.
+
 Use tls_error() to get error messages instead of generic SSL_ERROR in popup
 
 What is cache ssl_info?
 
-When to free tls - print out tls_free call, make sure called after connection, on kill connection, and on exit?
-When to free tls_config
-replace/change ssl_finish
+Does tls close and free everything under all close situations?  End of transfer, kill all connections, kill all background connections, other?
+
+Replace/change ssl_finish?
 
 When to abort_connection instead of retry?  I think tls masks the way this was handled with SSL
 Remove log_ssl_error, or replace with tls error
-
-x add port_str in url.c? (not needed, but should have used sprintf like ftp.c)

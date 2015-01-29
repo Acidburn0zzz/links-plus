@@ -1006,14 +1006,11 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		int l = 0;
 		if (e->ssl_info) mem_free(e->ssl_info);
 		e->ssl_info = init_str();
-		//add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->tls, NULL));
-		////add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->ssl, NULL));
+		//add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->ssl, NULL));
 		//add_to_str(&e->ssl_info, &l, cast_uchar "-bit ");
-		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->tls));
-		////add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->ssl));
+		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->ssl));
 		//add_to_str(&e->ssl_info, &l, cast_uchar " ");
-		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->tls));
-		////add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->ssl));
+		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->ssl));
 	}
 #endif
 	if (e->redirect) mem_free(e->redirect), e->redirect = NULL;

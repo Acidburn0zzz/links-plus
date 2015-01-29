@@ -5997,10 +5997,10 @@ echo "configure:5992: checking for OpenSSL" >&5
 		for ssldir in $ssld; do
 			if test "$cf_result" = no; then
 				if test ! -z "$ssldir" && test "$ssldir" != /usr && test "$ssldir" != .; then
-					LIBS="-L$ssldir/lib -lssl -lcrypto $LIBS_XX"
+					LIBS="-L$ssldir/lib -lssl -lcrypto -ltls $LIBS_XX"
 					CPPFLAGS="$CPPFLAGS_XX -I$ssldir/include"
 				else
-					LIBS="-lssl -lcrypto $LIBS_XX"
+					LIBS="-lssl -lcrypto -ltls $LIBS_XX"
 					CPPFLAGS="$CPPFLAGS_XX"
 				fi
 				cat > conftest.$ac_ext <<EOF

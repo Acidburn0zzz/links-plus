@@ -1147,6 +1147,7 @@ static inline int getpri(struct connection *c)
 
 #define S_SSL_ERROR		(-2000000400)
 #define S_NO_SSL		(-2000000401)
+#define S_SSL_HOST_ERROR	(-2000000402)
 
 #define S_BAD_SOCKS_VERSION	(-2000000500)
 #define S_SOCKS_REJECTED	(-2000000501)
