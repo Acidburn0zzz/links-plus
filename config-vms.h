@@ -682,7 +682,7 @@
 #define PACKAGE "links"
 
 /* Version number of package */
-#define VERSION "2.9"
+#define VERSION "2.9.2"
 
 
 /* */

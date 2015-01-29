@@ -344,7 +344,7 @@ static void ssl_want_read(struct connection *c)
 			break;
 		default:
 			// ERROR
-			printf("tls error = %s\n", tls_error(c->tls));
+			//printf("tls error = %s\n", tls_error(c->tls));
 			log_ssl_error(__LINE__, ret1, ret2);
 			//c->no_tsl++;
 			// FIXME: A number would be nice, or a way to pass the message string up
@@ -654,7 +654,7 @@ static void connected(struct connection *c)
 				// Success
 				break;
 			default:
-				printf("tls error = %s\n", tls_error(c->tls));
+				//printf("tls error = %s\n", tls_error(c->tls));
 				log_ssl_error(__LINE__, tls_err, 0);
 				// FIXME: A number would be nice, or a way to pass the message string up
 				if (strncasecmp(tls_error(c->tls), "host", 4) == 0) {
@@ -721,7 +721,7 @@ static void write_select(struct connection *c)
 			if (tls_err == -1) {
 				// ERROR
 				setcstate(c, S_SSL_ERROR);
-				printf("tls error = %s\n", tls_error(c->tls));
+				//printf("tls error = %s\n", tls_error(c->tls));
 				log_ssl_error(__LINE__, *wr, 0);
 				retry_connection(c); // FIXME: When to abort??
 				free(wr);
@@ -835,7 +835,7 @@ read_more:
 			}
 			// ERROR
 			setcstate(c, S_SSL_ERROR);
-			printf("tls error = %s\n", tls_error(c->tls));
+			//printf("tls error = %s\n", tls_error(c->tls));
 			log_ssl_error(__LINE__, tls_err, 0);
 			retry_connection(c); // FIXME: Or abort???
 			free(rd);
