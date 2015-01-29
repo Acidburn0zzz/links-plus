@@ -371,9 +371,9 @@
 #define T_HEADER_INFO    367
 #define T_YOU_ARE_NOWHERE    368
 #define T_NO_HEADER    369
-#define T_URL    360
+#define T_URL    370
 #define T_SIZE    371
-#define T_COMPRESSED_WITH    370
+#define T_COMPRESSED_WITH    372
 #define T_INCOMPLETE    373
 #define T_CODEPAGE    374
 #define T_ASSUMED    375
