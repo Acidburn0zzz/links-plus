@@ -244,7 +244,7 @@
 #define T_FILE_NOT_FOUND    240
 #define T_FTP_FILE_ERROR    241
 #define T_SSL_ERROR    242
-#define T_SSL_HOST_ERROR 243
+#define T_SSL_HOST_ERROR    243
 #define T_NO_SSL    244
 #define T_BAD_SOCKS_VERSION    245
 #define T_SOCKS_REJECTED_OR_FAILED    246
@@ -375,7 +375,7 @@
 #define T_URL    371
 #define T_SIZE    372
 #define T_COMPRESSED_WITH    373
-#define T_INCOMPLETE    375
+#define T_INCOMPLETE    374
 #define T_CODEPAGE    375
 #define T_ASSUMED    376
 #define T_IGNORING_SERVER_SETTING    377
@@ -391,7 +391,7 @@
 #define T_ROWS    387
 #define T_GOTO    388
 #define T_CLOSE    389
-#define T_FOLDER    399
+#define T_FOLDER    390
 #define T_fOLDER    391
 #define T_ADD    392
 #define T_DELETE    393
