@@ -89,8 +89,12 @@ int set_cookie(struct terminal *term, unsigned char *url, unsigned char *str)
 	struct cookie *cookie;
 	struct c_server *cs;
 	unsigned char *p, *q, *s, *server, *date;
-    int accept_cookies = d_opt->allow_cookies;
-	if (accept_cookies == ACCEPT_NONE) return 0;
+	d_opt = &dd_opt;
+    int accept_cookies = dds.allow_cookies;
+	if (accept_cookies == ACCEPT_NONE) {
+		printf ("ACCEPT_NONE\n");
+		return 0;
+	}
 	for (p = str; *p != ';' && *p; p++) { /*if (WHITECHAR(*p)) return 0;*/ }
 	for (q = str; *q != '='; q++) if (!*q || q >= p) {
 		noval = 1;
@@ -152,6 +156,7 @@ int set_cookie(struct terminal *term, unsigned char *url, unsigned char *str)
 		}
 	}
 	if (accept_cookies != ACCEPT_ALL) {
+		printf("!ACCEPT_ALL\n");
 		free_cookie(cookie);
 		mem_free(cookie);
 		mem_free(server);
