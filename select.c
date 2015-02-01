@@ -575,7 +575,9 @@ void select_loop(void (*init)(void))
 		memcpy(&x_write, &w_write, sizeof(fd_set));
 		memcpy(&x_error, &w_error, sizeof(fd_set));
 		/*rep_sel:*/
-		if (terminate_loop) break;
+		if (terminate_loop) {
+			break;
+		}
 		if (!w_max && list_empty(timers)) {
 			/*internal("select_loop: no more events to wait for");*/
 			break;

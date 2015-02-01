@@ -747,7 +747,7 @@ fi
 
 PACKAGE=links
 
-VERSION=2.9.1
+VERSION=2.9.2
 
 if test "`cd $srcdir && pwd`" != "`pwd`" && test -f $srcdir/config.status; then
   { echo "configure: error: source directory already configured; run "make distclean" there first" 1>&2; exit 1; }
@@ -5997,10 +5997,10 @@ echo "configure:5992: checking for OpenSSL" >&5
 		for ssldir in $ssld; do
 			if test "$cf_result" = no; then
 				if test ! -z "$ssldir" && test "$ssldir" != /usr && test "$ssldir" != .; then
-					LIBS="-L$ssldir/lib -lssl -lcrypto $LIBS_XX"
+					LIBS="-L$ssldir/lib -lssl -lcrypto -ltls $LIBS_XX"
 					CPPFLAGS="$CPPFLAGS_XX -I$ssldir/include"
 				else
-					LIBS="-lssl -lcrypto $LIBS_XX"
+					LIBS="-lssl -lcrypto -ltls $LIBS_XX"
 					CPPFLAGS="$CPPFLAGS_XX"
 				fi
 				cat > conftest.$ac_ext <<EOF

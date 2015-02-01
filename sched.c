@@ -360,11 +360,20 @@ static void sort_queue(void)
 static void interrupt_connection(struct connection *c)
 {
 #ifdef HAVE_SSL
-	if (c->ssl == (void *)-1) c->ssl = NULL;
-	if (c->ssl) {
-		SSL_free(c->ssl);
-		c->ssl = NULL;
+	if (c->tls == (void *)-1) c->tls = NULL;
+	if (c->tls) {
+		tls_close(c->tls);
+		tls_free(c->tls);
+		c->tls = NULL;
+		//### Free config?
+		tls_config_free(c->tls_config);
+		c->tls_config = NULL;
 	}
+	//if (c->ssl == (void *)-1) c->ssl = NULL;
+	//if (c->ssl) {
+	//	SSL_free(c->ssl);
+	//	c->ssl = NULL;
+	//}
 #endif
 	if (c->sock1 != -1) set_handlers(c->sock1, NULL, NULL, NULL, NULL);
 	close_socket(&c->sock1);
@@ -1052,6 +1061,7 @@ struct s_msg_dsc msg_dsc[] = {
 	{S_FTP_FILE_ERROR,	TEXT_(T_FTP_FILE_ERROR)},
 
 	{S_SSL_ERROR,		TEXT_(T_SSL_ERROR)},
+	{S_SSL_HOST_ERROR,	TEXT_(T_SSL_HOST_ERROR)},
 	{S_NO_SSL,		TEXT_(T_NO_SSL)},
 	{S_BAD_SOCKS_VERSION,	TEXT_(T_BAD_SOCKS_VERSION)},
 	{S_SOCKS_REJECTED,	TEXT_(T_SOCKS_REJECTED_OR_FAILED)},

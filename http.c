@@ -225,12 +225,15 @@ static void http_send_header(struct connection *c)
 	info = mem_calloc(sizeof(struct http_connection_info));
 	c->info = info;
 #ifdef HAVE_SSL
-	info->https_forward = !c->ssl && proxy && host && !casecmp(host, cast_uchar "https://", 8);
-	if (c->ssl) proxy = 0;
+	//info->https_forward = !c->ssl && proxy && host && !casecmp(host, cast_uchar "https://", 8);
+	info->https_forward = !c->tls && proxy && host && !casecmp(host, cast_uchar "https://", 8);
+	//if (c->ssl) proxy = 0;
+	if (c->tls) proxy = 0;
 #endif
 	info->send_close = info->https_forward || http10 || (post && http_options.bug_post_no_keepalive)
 #ifdef HAVE_SSL
-		|| c->ssl
+		|| c->tls
+		//|| c->ssl
 #endif
 		;
 	hdr = init_str();
@@ -914,7 +917,8 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		mem_free(head);
 		mem_free(c->info);
 		c->info = 0;
-		c->ssl = DUMMY;
+		c->tls = DUMMY;
+		//c->ssl = DUMMY;
 		continue_connection(c, &c->sock1, http_send_header);
 		return;
 	}
@@ -997,15 +1001,16 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		mem_free(d);
 	}
 #ifdef HAVE_SSL
-	if (c->ssl) {
+	//if (c->ssl) {
+	if (c->tls) {
 		int l = 0;
 		if (e->ssl_info) mem_free(e->ssl_info);
 		e->ssl_info = init_str();
-		add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->ssl, NULL));
-		add_to_str(&e->ssl_info, &l, cast_uchar "-bit ");
-		add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->ssl));
-		add_to_str(&e->ssl_info, &l, cast_uchar " ");
-		add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->ssl));
+		//add_num_to_str(&e->ssl_info, &l, SSL_get_cipher_bits(c->ssl, NULL));
+		//add_to_str(&e->ssl_info, &l, cast_uchar "-bit ");
+		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_version(c->ssl));
+		//add_to_str(&e->ssl_info, &l, cast_uchar " ");
+		//add_to_str(&e->ssl_info, &l, cast_uchar SSL_get_cipher_name(c->ssl));
 	}
 #endif
 	if (e->redirect) mem_free(e->redirect), e->redirect = NULL;

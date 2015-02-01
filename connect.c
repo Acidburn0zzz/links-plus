@@ -321,33 +321,60 @@ int get_pasv_socket_ipv6(struct connection *c, int cc, int *sock, unsigned char 
 #ifdef HAVE_SSL
 static void ssl_want_read(struct connection *c)
 {
-	int ret1, ret2;
+	int ret1, ret2, tls_err;
 	struct conn_info *b = c->newconn;
 
 	set_connection_timeout(c);
 
 #ifndef HAVE_NSS
-	if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
+	//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-	switch ((ret2 = SSL_get_error(c->ssl, ret1 = SSL_connect(c->ssl)))) {
-		case SSL_ERROR_NONE:
+	switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
+		case 0:
+			// Success
 			c->newconn = NULL;
 			b->func(c);
 			mem_free(b);
 			break;
-		case SSL_ERROR_WANT_READ:
-			set_handlers(*b->sock, (void(*)(void *))ssl_want_read, NULL, (void(*)(void *))exception, c);
+		case TLS_READ_AGAIN:
+			ssl_want_read(c);
 			break;
-		case SSL_ERROR_WANT_WRITE:
-			set_handlers(*b->sock, NULL, (void(*)(void *))ssl_want_read, (void(*)(void *))exception, c);
+		case TLS_WRITE_AGAIN:
+			ssl_want_read(c);
 			break;
 		default:
+			// ERROR
+			//printf("tls error = %s\n", tls_error(c->tls));
 			log_ssl_error(__LINE__, ret1, ret2);
-			c->no_tsl++;
-			setcstate(c, S_SSL_ERROR);
+			//c->no_tsl++;
+			// FIXME: A number would be nice, or a way to pass the message string up
+			if (strncasecmp(tls_error(c->tls), "host", 4) == 0) {
+				setcstate(c, S_SSL_HOST_ERROR);
+			} else {
+				setcstate(c, S_SSL_ERROR);
+			}
 			retry_connection(c);
 			break;
 	}
+	//switch ((ret2 = SSL_get_error(c->ssl, ret1 = SSL_connect(c->ssl)))) {
+		//case SSL_ERROR_NONE:
+			//c->newconn = NULL;
+			//b->func(c);
+			//mem_free(b);
+			//break;
+		//case SSL_ERROR_WANT_READ:
+			//set_handlers(*b->sock, (void(*)(void *))ssl_want_read, NULL, (void(*)(void *))exception, c);
+			//break;
+		//case SSL_ERROR_WANT_WRITE:
+			//set_handlers(*b->sock, NULL, (void(*)(void *))ssl_want_read, (void(*)(void *))exception, c);
+			//break;
+		//default:
+			//log_ssl_error(__LINE__, ret1, ret2);
+			//c->no_tsl++;
+			//setcstate(c, S_SSL_ERROR);
+			//retry_connection(c);
+			//break;
+	//}
 }
 #endif
 
@@ -584,35 +611,79 @@ static void connected(struct connection *c)
 		return;
 	}
 #ifdef HAVE_SSL
-	if (c->ssl) {
-		int ret1, ret2;
-		c->ssl = getSSL();
-		if (!c->ssl) {
-			goto ssl_error;
+	//if (c->ssl) {
+	if (c->tls) {
+		int ret1, ret2, tls_err;
+        if (tls_init() == -1) {
+			// ERROR
+			setcstate(c, S_SSL_ERROR);
+			retry_connection(c);
+			return;
 		}
-		SSL_set_fd(c->ssl, *b->sock);
+        if ((c->tls_config = tls_config_new()) == NULL) {
+			// ERROR
+			setcstate(c, S_SSL_ERROR);
+			retry_connection(c);
+			return;
+		}
+		if ((c->tls = tls_client()) == NULL) {
+			// ERROR
+			setcstate(c, S_SSL_ERROR);
+			retry_connection(c);
+			return;
+		}
+
+		//c->ssl = getSSL();
+		//if (!c->ssl) {
+		//	goto ssl_error;
+		//}
+		//SSL_set_fd(c->ssl, *b->sock);
 #ifndef HAVE_NSS
-		if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
+		//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-		switch ((ret2 = SSL_get_error(c->ssl, ret1 = SSL_connect(c->ssl)))) {
-			case SSL_ERROR_WANT_READ:
+		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
+			case TLS_READ_AGAIN:
 				setcstate(c, S_SSL_NEG);
-				set_handlers(*b->sock, (void(*)(void *))ssl_want_read, NULL, (void(*)(void *))exception, c);
+				ssl_want_read(c);
 				return;
-			case SSL_ERROR_WANT_WRITE:
+			case TLS_WRITE_AGAIN:
 				setcstate(c, S_SSL_NEG);
-				set_handlers(*b->sock, NULL, (void(*)(void *))ssl_want_read, (void(*)(void *))exception, c);
+				ssl_want_read(c);
 				return;
-			case SSL_ERROR_NONE:
+			case 0:
+				// Success
 				break;
 			default:
-				log_ssl_error(__LINE__, ret1, ret2);
-			ssl_error:
-				c->no_tsl++;
+				//printf("tls error = %s\n", tls_error(c->tls));
+				log_ssl_error(__LINE__, tls_err, 0);
+				// FIXME: A number would be nice, or a way to pass the message string up
+				if (strncasecmp(tls_error(c->tls), "host", 4) == 0) {
+					setcstate(c, S_SSL_HOST_ERROR);
+				} else {
 				setcstate(c, S_SSL_ERROR);
+				}
 				retry_connection(c);
 				return;
 		}
+		//switch ((ret2 = SSL_get_error(c->ssl, ret1 = SSL_connect(c->ssl)))) {
+			//case SSL_ERROR_WANT_READ:
+				//setcstate(c, S_SSL_NEG);
+				//set_handlers(*b->sock, (void(*)(void *))ssl_want_read, NULL, (void(*)(void *))exception, c);
+				//return;
+			//case SSL_ERROR_WANT_WRITE:
+				//setcstate(c, S_SSL_NEG);
+				//set_handlers(*b->sock, NULL, (void(*)(void *))ssl_want_read, (void(*)(void *))exception, c);
+				//return;
+			//case SSL_ERROR_NONE:
+				//break;
+			//default:
+				//log_ssl_error(__LINE__, ret1, ret2);
+			//ssl_error:
+				//c->no_tsl++;
+				//setcstate(c, S_SSL_ERROR);
+				//retry_connection(c);
+				//return;
+		//}
 	}
 #endif
 	c->newconn = NULL;
@@ -631,7 +702,8 @@ struct write_buffer {
 static void write_select(struct connection *c)
 {
 	struct write_buffer *wb;
-	int wr;
+	int tls_err;
+	size_t *wr = malloc(sizeof(size_t));
 	if (!(wb = c->buffer)) {
 		internal("write socket has no buffer");
 		setcstate(c, S_INTERNAL);
@@ -644,43 +716,64 @@ static void write_select(struct connection *c)
 	printf("-\n");*/
 
 #ifdef HAVE_SSL
-	if(c->ssl) {
-		if ((wr = SSL_write(c->ssl, wb->data + wb->pos, wb->len - wb->pos)) <= 0) {
-			int err;
-			if ((err = SSL_get_error(c->ssl, wr)) != SSL_ERROR_WANT_WRITE) {
-				setcstate(c, wr ? (err == SSL_ERROR_SYSCALL ? get_error_from_errno(errno) : S_SSL_ERROR) : S_CANT_WRITE);
-				if (c->state == S_SSL_ERROR)
-					log_ssl_error(__LINE__, wr, err);
-				if (!wr || err == SSL_ERROR_SYSCALL) retry_connection(c);
-				else abort_connection(c);
+	if (c->tls) {
+		if ((tls_err = tls_write(c->tls, wb->data + wb->pos, wb->len - wb->pos, wr)) < 0) {
+			if (tls_err == -1) {
+				// ERROR
+				setcstate(c, S_SSL_ERROR);
+				//printf("tls error = %s\n", tls_error(c->tls));
+				log_ssl_error(__LINE__, *wr, 0);
+				retry_connection(c); // FIXME: When to abort??
+				free(wr);
+				return;
+			} else {
+				// TLS_[READ|WRITE]_AGAIN
+				free(wr);
 				return;
 			}
-			else return;
 		}
 	} else
+	//if(c->ssl) {
+		//if ((wr = SSL_write(c->ssl, wb->data + wb->pos, wb->len - wb->pos)) <= 0) {
+			//int err;
+			//if ((err = SSL_get_error(c->ssl, wr)) != SSL_ERROR_WANT_WRITE) {
+				//setcstate(c, wr ? (err == SSL_ERROR_SYSCALL ? get_error_from_errno(errno) : S_SSL_ERROR) : S_CANT_WRITE);
+				//if (c->state == S_SSL_ERROR)
+					//log_ssl_error(__LINE__, wr, err);
+				//if (!wr || err == SSL_ERROR_SYSCALL) retry_connection(c);
+				//else abort_connection(c);
+				//return;
+			//}
+			//else return;
+		//}
+	//} else
 #endif
 	{
-		EINTRLOOP(wr, (int)write(wb->sock, wb->data + wb->pos, wb->len - wb->pos));
-		if (wr <= 0) {
+		EINTRLOOP(*wr, (int)write(wb->sock, wb->data + wb->pos, wb->len - wb->pos));
+		if (*wr <= 0) {
 #if defined(ATHEOS) || defined(DOS)
 	/* Workaround for a bug in Syllable */
-			if (wr && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			if (*wr && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+				free(wr);
 				return;
 			}
 #endif
-			setcstate(c, wr ? get_error_from_errno(errno) : S_CANT_WRITE);
+			setcstate(c, *wr ? get_error_from_errno(errno) : S_CANT_WRITE);
 			retry_connection(c);
+			free(wr);
 			return;
 		}
 	}
 
-	if ((wb->pos += wr) == wb->len) {
+	if ((wb->pos += *wr) == wb->len) {
 		void (*f)(struct connection *) = wb->done;
 		c->buffer = NULL;
 		set_handlers(wb->sock, NULL, NULL, NULL, NULL);
 		mem_free(wb);
 		f(c);
 	}
+	free(wr);
+
 }
 
 void write_to_socket(struct connection *c, int s, unsigned char *data, int len, void (*write_func)(struct connection *))
@@ -706,11 +799,14 @@ static void read_select(struct connection *c)
 {
 	int total_read = 0;
 	struct read_buffer *rb;
-	int rd;
+	int tls_err;
+	size_t *rd = malloc(sizeof(size_t));
+	*rd = 0;
 	if (!(rb = c->buffer)) {
 		internal("read socket has no buffer");
 		setcstate(c, S_INTERNAL);
 		abort_connection(c);
+		free(rd);
 		return;
 	}
 	set_handlers(rb->sock, NULL, NULL, NULL, NULL);
@@ -721,39 +817,65 @@ read_more:
 	c->buffer = rb;
 
 #ifdef HAVE_SSL
-	if (c->ssl) {
-		if ((rd = SSL_read(c->ssl, rb->data + rb->len, READ_SIZE)) <= 0) {
-			int err;
-			if (total_read) goto success;
-			if ((err = SSL_get_error(c->ssl, rd)) == SSL_ERROR_WANT_READ) {
+	if (c->tls) {
+		if ((tls_err = tls_read(c->tls, rb->data + rb->len, READ_SIZE, rd)) < 0) {
+			if (total_read) {
+				goto success;
+			}
+			if (tls_err == TLS_READ_AGAIN) {
 				read_from_socket(c, rb->sock, rb, rb->done);
+				free(rd);
 				return;
 			}
-			if (rb->close && !rd) {
+			if (rb->close && (tls_err == -1)) {
 				rb->close = 2;
 				rb->done(c, rb);
+				free(rd);
 				return;
 			}
-			setcstate(c, rd ? (err == SSL_ERROR_SYSCALL ? get_error_from_errno(errno) : S_SSL_ERROR) : S_CANT_READ);
-			if (c->state == S_SSL_ERROR)
-				log_ssl_error(__LINE__, rd, err);
-			/*mem_free(rb);*/
-			if (!rd || err == SSL_ERROR_SYSCALL) retry_connection(c);
-			else abort_connection(c);
+			// ERROR
+			setcstate(c, S_SSL_ERROR);
+			//printf("tls error = %s\n", tls_error(c->tls));
+			log_ssl_error(__LINE__, tls_err, 0);
+			retry_connection(c); // FIXME: Or abort???
+			free(rd);
 			return;
 		}
 	} else
+	//if (c->ssl) {
+		//if ((rd = SSL_read(c->ssl, rb->data + rb->len, READ_SIZE)) <= 0) {
+			//int err;
+			//if (total_read) goto success;
+			//if ((err = SSL_get_error(c->ssl, rd)) == SSL_ERROR_WANT_READ) {
+				//read_from_socket(c, rb->sock, rb, rb->done);
+				//return;
+			//}
+			//if (rb->close && !rd) {
+				//rb->close = 2;
+				//rb->done(c, rb);
+				//return;
+			//}
+			//setcstate(c, rd ? (err == SSL_ERROR_SYSCALL ? get_error_from_errno(errno) : S_SSL_ERROR) : S_CANT_READ);
+			//if (c->state == S_SSL_ERROR)
+				//log_ssl_error(__LINE__, rd, err);
+			/*mem_free(rb);*/
+			//if (!rd || err == SSL_ERROR_SYSCALL) retry_connection(c);
+			//else abort_connection(c);
+			//return;
+		//}
+	//} else
 #endif
 	{
-		EINTRLOOP(rd, (int)read(rb->sock, rb->data + rb->len, READ_SIZE));
-		if (rd <= 0) {
+		EINTRLOOP(*rd, (int)read(rb->sock, rb->data + rb->len, READ_SIZE));
+		if (*rd <= 0) {
 			if (total_read) goto success;
-			if (rb->close && !rd) {
+			if (rb->close && !*rd) {
 				rb->close = 2;
 				rb->done(c, rb);
+				free(rd);
 				return;
 			}
-			if (!rd) {
+			if (!*rd) {
 /* Many servers supporting compression have a bug
    --- they send the size of uncompressed data.
    Turn off compression support once before the final retry.
@@ -769,25 +891,29 @@ read_more:
 					mem_free(prot);
 				}
 			}
-			setcstate(c, rd ? get_error_from_errno(errno) : S_CANT_READ);
+			setcstate(c, *rd ? get_error_from_errno(errno) : S_CANT_READ);
 			/*mem_free(rb);*/
 			retry_connection(c);
+			free(rd);
 			return;
 		}
 	}
-	log_data(rb->data + rb->len, rd);
-	rb->len += rd;
-	total_read += rd;
+	log_data(rb->data + rb->len, *rd);
+	rb->len += *rd;
+	total_read += *rd;
 
-	if ((rd == READ_SIZE
+	if ((*rd == READ_SIZE
 #ifdef HAVE_SSL
-	    || c->ssl
+		|| c->tls
+	    //|| c->ssl
 #endif
 	    ) && total_read <= TOTAL_READ) {
-		if (can_read(rb->sock))
+		if (can_read(rb->sock)) {
 			goto read_more;
+		}
 	}
 success:
+	free(rd);
 	rb->done(c, rb);
 }
 

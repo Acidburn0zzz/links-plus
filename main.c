@@ -415,7 +415,7 @@ static void terminate_all_subsystems(void)
 	check_bottom_halves();
 	abort_all_downloads();
 #ifdef HAVE_SSL
-	ssl_finish();
+	//ssl_finish();
 #endif
 	check_bottom_halves();
 	destroy_all_terminals();

@@ -113,7 +113,7 @@ static void menu_version(struct terminal *term)
 
 	add_and_pad(&s, &l, term, *text_ptr++, maxlen);
 #ifdef HAVE_SSL
-	add_to_str(&s, &l, (unsigned char *)SSLeay_version(SSLEAY_VERSION));
+	//add_to_str(&s, &l, (unsigned char *)SSLeay_version(SSLEAY_VERSION));
 #else
 	add_to_str(&s, &l, _(TEXT_(T_NO), term));
 #endif

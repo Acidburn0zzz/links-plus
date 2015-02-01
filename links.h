@@ -193,8 +193,9 @@
 #if defined(OPENVMS) && defined(__VAX)
 #define OPENSSL_NO_SHA512
 #endif
-#include <openssl/ssl.h>
+//#include <openssl/ssl.h>
 #include <openssl/rand.h>
+#include <tls.h>
 #endif
 #ifdef HAVE_NSS
 #include <nss_compat_ossl/nss_compat_ossl.h>
@@ -1057,8 +1058,10 @@ struct connection {
 	int detached;
 	unsigned char socks_proxy[MAX_STR_LEN];
 #ifdef HAVE_SSL
-	SSL *ssl;
-	int no_tsl;
+	//SSL *ssl;
+	//int no_tsl;
+	struct tls_config *tls_config;
+	struct tls *tls;
 #endif
 };
 
@@ -1144,6 +1147,7 @@ static inline int getpri(struct connection *c)
 
 #define S_SSL_ERROR		(-2000000400)
 #define S_NO_SSL		(-2000000401)
+#define S_SSL_HOST_ERROR	(-2000000402)
 
 #define S_BAD_SOCKS_VERSION	(-2000000500)
 #define S_SOCKS_REJECTED	(-2000000501)
@@ -1321,7 +1325,7 @@ void proxy_func(struct connection *);
 void https_func(struct connection *c);
 #ifdef HAVE_SSL
 void ssl_finish(void);
-SSL *getSSL(void);
+//SSL *getSSL(void);
 #endif
 
 /* data.c */
@@ -2433,7 +2437,7 @@ struct document_setup {
 	int margin;
 	int num_links, table_order;
 	int auto_refresh;
-    int allow_cookies;
+	int allow_cookies;
 	int font_size;
 	int display_images;
 	int image_scale;
@@ -2466,7 +2470,7 @@ struct document_options {
 	int plain;
 	int num_links, table_order;
 	int auto_refresh;
-    int allow_cookies;
+	int allow_cookies;
 	struct rgb default_fg;
 	struct rgb default_bg;
 	struct rgb default_link;
@@ -2500,7 +2504,7 @@ static inline void ds2do(struct document_setup *ds, struct document_options *doo
 	doo->num_links = ds->num_links;
 	doo->table_order = ds->table_order;
 	doo->auto_refresh = ds->auto_refresh;
-    doo->allow_cookies = ds->allow_cookies;
+	doo->allow_cookies = ds->allow_cookies;
 	doo->font_size = ds->font_size;
 	doo->display_images = ds->display_images;
 	doo->image_scale = ds->image_scale;
