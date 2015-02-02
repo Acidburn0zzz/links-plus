@@ -145,6 +145,7 @@ struct conn_info {
 	int socks_byte_count;
 	unsigned char socks_reply[8];
 	unsigned char *host;
+	unsigned char *real_host;
 	unsigned char *dns_append;
 };
 
@@ -153,7 +154,7 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	int real_port = -1;
 	int as;
 	unsigned char *dns_append = cast_uchar "";
-	unsigned char *host;
+	unsigned char *host, *real_host;
 	struct conn_info *b;
 	if (*c->socks_proxy) {
 		unsigned char *p = cast_uchar strchr(cast_const_char c->socks_proxy, '@');
@@ -177,10 +178,18 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 			port = (int)lp;
 		}
 		dns_append = proxies.dns_append;
-	} else if (!(host = get_host_name(c->url))) {
-		setcstate(c, S_INTERNAL);
-		abort_connection(c);
-		return;
+		if (!(real_host = get_host_name(c->url))) {
+			setcstate(c, S_INTERNAL);
+			abort_connection(c);
+			return;
+		}
+	} else {
+		if (!(host = get_host_name(c->url))) {
+			setcstate(c, S_INTERNAL);
+			abort_connection(c);
+			return;
+		}
+		real_host = stracpy(host);
 	}
 	if (c->newconn)
 		internal("already making a connection");
@@ -191,6 +200,7 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	b->real_port = real_port;
 	b->host = (unsigned char *)(b + 1);
 	strcpy(cast_char b->host, cast_const_char host);
+	b->real_host = real_host;
 	b->dns_append = cast_uchar strchr(cast_const_char b->host, 0) + 1;
 	strcpy(cast_char b->dns_append, cast_const_char dns_append);
 	c->newconn = b;
@@ -329,7 +339,7 @@ static void ssl_want_read(struct connection *c)
 #ifndef HAVE_NSS
 	//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-	switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
+	switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->real_host)) {
 		case 0:
 			// Success
 			c->newconn = NULL;
@@ -641,7 +651,7 @@ static void connected(struct connection *c)
 #ifndef HAVE_NSS
 		//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->host)) {
+		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->real_host)) {
 			case TLS_READ_AGAIN:
 				setcstate(c, S_SSL_NEG);
 				ssl_want_read(c);
