@@ -1,3 +1,7 @@
+=== RELEASE 2.9.3 ===
+
+Fix SSL host verification over socks proxy
+
 === RELEASE 2.9.2 ===
 
 Converted from SSL to libtls.  Enables hostname verification of certs.
