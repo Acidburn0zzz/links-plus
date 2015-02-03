@@ -219,8 +219,10 @@ static void http_send_header(struct connection *c)
 			c->cache->refcount--;
 	}
 
+	printf("http_send_header: c->url=%s\n", c->url);
 	proxy = upcase(c->url[0]) == 'P';
 	host = !proxy ? c->url : get_url_data(c->url);
+	printf("http_send_header: host=%s, proxy=%d\n", host, proxy);
 	set_connection_timeout(c);
 	info = mem_calloc(sizeof(struct http_connection_info));
 	c->info = info;
@@ -258,6 +260,7 @@ static void http_send_header(struct connection *c)
 		add_to_str(&hdr, &l, cast_uchar "CONNECT ");
 		h = get_host_name(host);
 		if (!h) goto http_bad_url;
+		printf("http_send_header(https_forward): h=%s\n", h);
 		add_to_str(&hdr, &l, h);
 		mem_free(h);
 		h = get_port_str(host);
@@ -289,6 +292,7 @@ static void http_send_header(struct connection *c)
 		int u_host_len;
 		int u2_len = 0;
 		if (parse_url(u, NULL, NULL, NULL, NULL, NULL, &u_host, &u_host_len, NULL, NULL, NULL, NULL, NULL)) goto http_bad_url;
+		printf("http_send_header(proxy): u_host=%s\n", u_host);
 		u2 = init_str();
 		add_bytes_to_str(&u2, &u2_len, u, u_host + u_host_len - u);
 		add_to_str(&u2, &u2_len, proxies.dns_append);
@@ -310,6 +314,7 @@ static void http_send_header(struct connection *c)
 				pc[1] = 0;
 			}
 		}
+		printf("http_send_header(not info->https_forward): h=%s\n", h);
 		add_to_str(&hdr, &l, h);
 		mem_free(h);
 		if ((h = get_port_str(host))) {
@@ -847,6 +852,7 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 	int previous_http_code;
 	struct http_connection_info *info;
 	unsigned char *host = upcase(c->url[0]) != 'P' ? c->url : get_url_data(c->url);
+	printf("http_got_header: host=%s\n", host);
 	set_connection_timeout(c);
 	info = c->info;
 	if (rb->close == 2) {
@@ -919,7 +925,9 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		c->info = 0;
 		c->tls = DUMMY;
 		//c->ssl = DUMMY;
+		printf("http_got_header(info->https_forward): c->url=%s\n", c->url);
 		continue_connection(c, &c->sock1, http_send_header);
+		printf("http_got_header: return\n");
 		return;
 	}
 	if (info->https_forward && h != 407) {
@@ -1126,6 +1134,7 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		truncate_entry(e, c->from, 0);
 	}
 
+	printf("http_got_header: go to read_http_data\n");
 	read_http_data(c, rb);
 }
 
