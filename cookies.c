@@ -92,7 +92,6 @@ int set_cookie(struct terminal *term, unsigned char *url, unsigned char *str)
 	d_opt = &dd_opt;
     int accept_cookies = dds.allow_cookies;
 	if (accept_cookies == ACCEPT_NONE) {
-		printf ("ACCEPT_NONE\n");
 		return 0;
 	}
 	for (p = str; *p != ';' && *p; p++) { /*if (WHITECHAR(*p)) return 0;*/ }
@@ -156,7 +155,6 @@ int set_cookie(struct terminal *term, unsigned char *url, unsigned char *str)
 		}
 	}
 	if (accept_cookies != ACCEPT_ALL) {
-		printf("!ACCEPT_ALL\n");
 		free_cookie(cookie);
 		mem_free(cookie);
 		mem_free(server);
