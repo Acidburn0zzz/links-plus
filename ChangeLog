@@ -1,3 +1,7 @@
+=== RELEASE 2.9.4 ==
+
+Fix SSL connections over http proxy
+
 === RELEASE 2.9.3 ===
 
 Fix SSL host verification over socks proxy
