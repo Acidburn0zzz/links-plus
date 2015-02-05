@@ -185,12 +185,10 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 		}
 	} else {
 		if (!(host = get_host_name(c->url))) {
-			printf("Couldn't get host\n");
 			setcstate(c, S_INTERNAL);
 			abort_connection(c);
 			return;
 		}
-		printf("Copy host %s to real_host\n", host);
 		real_host = stracpy(host);
 	}
 	if (c->newconn)
@@ -203,7 +201,6 @@ void make_connection(struct connection *c, int port, int *sock, void (*func)(str
 	b->host = (unsigned char *)(b + 1);
 	strcpy(cast_char b->host, cast_const_char host);
 	b->real_host = real_host;
-	printf("b->host=%s, b->real_host=%s\n", b->host, b->real_host);
 	b->dns_append = cast_uchar strchr(cast_const_char b->host, 0) + 1;
 	strcpy(cast_char b->dns_append, cast_const_char dns_append);
 	c->newconn = b;
@@ -342,7 +339,6 @@ static void ssl_want_read(struct connection *c)
 #ifndef HAVE_NSS
 	//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-	printf("ssl_want_read: host=%s, real_host=%s\n", b->host, b->real_host);
 	switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->real_host)) {
 		case 0:
 			// Success
@@ -358,7 +354,7 @@ static void ssl_want_read(struct connection *c)
 			break;
 		default:
 			// ERROR
-			printf("tls_connect (ssl_want_read): tls error = %s\n", tls_error(c->tls));
+			//printf("tls_connect (ssl_want_read): tls error = %s\n", tls_error(c->tls));
 			log_ssl_error(__LINE__, ret1, ret2);
 			//c->no_tsl++;
 			// FIXME: A number would be nice, or a way to pass the message string up
@@ -581,14 +577,11 @@ void continue_connection(struct connection *c, int *sock, void (*func)(struct co
 	b->real_port = -1;
 	// Get host for connection if proxy
 	if (upcase(c->url[0]) == 'P') {
-		printf("continuing proxy connection\n");
 		if (!(b->host = get_host_name(get_url_data(c->url)))) {
-			printf("Couldn't get host\n");
 			setcstate(c, S_INTERNAL);
 			abort_connection(c);
 			return;
 		}
-		printf("Copy host %s to real_host\n", b->host);
 		b->real_host = stracpy(b->host);
 	}
 
@@ -668,7 +661,6 @@ static void connected(struct connection *c)
 #ifndef HAVE_NSS
 		//if (c->no_tsl) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-		printf("connected: c->url=%s, host=%s, real_host=%s\n", c->url, b->host, b->real_host);
 		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->real_host)) {
 			case TLS_READ_AGAIN:
 				setcstate(c, S_SSL_NEG);
@@ -682,7 +674,7 @@ static void connected(struct connection *c)
 				// Success
 				break;
 			default:
-				printf("tls_connect(connected): tls error = %s\n", tls_error(c->tls));
+				//printf("tls_connect(connected): tls error = %s\n", tls_error(c->tls));
 				log_ssl_error(__LINE__, tls_err, 0);
 				// FIXME: A number would be nice, or a way to pass the message string up
 				if (strncasecmp(tls_error(c->tls), "host", 4) == 0) {
@@ -745,12 +737,11 @@ static void write_select(struct connection *c)
 
 #ifdef HAVE_SSL
 	if (c->tls) {
-		printf("tls_write(write_select): c->url=%s\n", c->url);
 		if ((tls_err = tls_write(c->tls, wb->data + wb->pos, wb->len - wb->pos, wr)) < 0) {
 			if (tls_err == -1) {
 				// ERROR
 				setcstate(c, S_SSL_ERROR);
-				printf("tls_write: tls error = %s\n", tls_error(c->tls));
+				//printf("tls_write: tls error = %s\n", tls_error(c->tls));
 				log_ssl_error(__LINE__, *wr, 0);
 				retry_connection(c); // FIXME: When to abort??
 				free(wr);
@@ -864,7 +855,7 @@ read_more:
 			}
 			// ERROR
 			setcstate(c, S_SSL_ERROR);
-			printf("tls_read: tls error = %s\n", tls_error(c->tls));
+			//printf("tls_read: tls error = %s\n", tls_error(c->tls));
 			log_ssl_error(__LINE__, tls_err, 0);
 			retry_connection(c); // FIXME: Or abort???
 			free(rd);
