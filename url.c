@@ -187,7 +187,7 @@ unsigned char *get_pass(unsigned char *url)
 
 unsigned char *get_port_str(unsigned char *url)
 {
-	unsigned char *h, *p;
+	unsigned char *h;
 	int hl;
 	if (parse_url(url, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &h, &hl, NULL, NULL, NULL)) return NULL;
 	return hl ? memacpy(h, hl) : NULL;
