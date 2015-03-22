@@ -1,3 +1,5 @@
+Enable/disable cookies doesn't take immediate effect
+
 Make configure find, include libtls
 
 SSL verification over SOCKS (check proxies, too).
