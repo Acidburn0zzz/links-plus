@@ -236,24 +236,23 @@ void file_func(struct connection *c)
 		mem_free(name);
 		setcstate(c, S_FILE_TYPE); abort_connection(c); return;
 	}
-	EINTRLOOP(h, open(cast_const_char name, O_RDONLY | O_NOCTTY));
+	h = c_open(name, O_RDONLY | O_NOCTTY);
 	if (h == -1) {
 		int er = errno;
-		ENULLLOOP(d, opendir(cast_const_char name));
+		d = c_opendir(name);
 		if (d) goto dir;
 		mem_free(name);
 		setcstate(c, get_error_from_errno(er));
 		abort_connection(c);
 		return;
 	}
-	set_bin(h);
 	if (S_ISDIR(stt.st_mode)) {
 		struct dirs *dir;
 		int dirl;
 		int i;
 		int er;
 		struct dirent *de;
-		ENULLLOOP(d, opendir(cast_const_char name));
+		d = c_opendir(name);
 		er = errno;
 		EINTRLOOP(rs, close(h));
 		if (!d) {
@@ -305,7 +304,7 @@ void file_func(struct connection *c)
 				unsigned char *nn = cast_uchar strchr(cast_const_char n, ':');
 				if (nn) n = nn + 1;
 #endif
-				if (!strcspn(cast_const_char n, dir_sep('\\') ? "/\\" : "/") == strlen(cast_const_char n))
+				if (strspn(cast_const_char n, dir_sep('\\') ? "/\\" : "/") == strlen(cast_const_char n))
 					continue;
 			}
 			if ((unsigned)dirl > MAXINT / sizeof(struct dirs) - 1) overalloc();

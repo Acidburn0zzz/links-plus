@@ -916,7 +916,7 @@ static void process_sb_move(struct f_data_c *fd, int off)
 	draw_graphical_doc(fd->ses->term, fd, 1);
 }
 
-static inline int ev_in_rect(struct event *ev, int x1, int y1, int x2, int y2)
+static inline int ev_in_rect(struct links_event *ev, int x1, int y1, int x2, int y2)
 {
 	return ev->x >= x1 && ev->y >= y1 && ev->x < x2 && ev->y < y2;
 }
@@ -1048,7 +1048,7 @@ static int scroll_h(struct f_data_c *fd, int x)
 	return scroll_vh(&fd->vs->view_posx, &fd->vs->orig_view_posx, fd->ses->scrolling == 2 ? &fd->ses->scrolltype : NULL, x, fd->f_data->x - fd->xw + fd->vsb * G_SCROLL_BAR_WIDTH);
 }
 
-int g_frame_ev(struct session *ses, struct f_data_c *fd, struct event *ev)
+int g_frame_ev(struct session *ses, struct f_data_c *fd, struct links_event *ev)
 {
 	if (!fd->f_data) return 0;
 	switch ((int)ev->ev) {
@@ -1327,7 +1327,7 @@ int g_frame_ev(struct session *ses, struct f_data_c *fd, struct event *ev)
 
 void draw_title(struct f_data_c *f)
 {
-	unsigned char *title = stracpy(!drv->set_title ? f->f_data && f->f_data->title ? f->f_data->title : (unsigned char *)"" : f->rq && f->rq->url ? f->rq->url : (unsigned char *)"");
+	unsigned char *title = stracpy(!drv->set_title && f->f_data && f->f_data->title && f->f_data->title[0] ? f->f_data->title : f->rq && f->rq->url ? f->rq->url : (unsigned char *)"");
 	int b, z, w;
 	struct graphics_device *dev = f->ses->term->dev;
 	if (drv->set_title && strchr(cast_const_char title, POST_CHAR)) *cast_uchar strchr(cast_const_char title, POST_CHAR) = 0;

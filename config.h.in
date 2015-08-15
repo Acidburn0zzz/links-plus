@@ -71,6 +71,21 @@
 /* Define if you have the MouOpen function.  */
 #undef HAVE_MOUOPEN
 
+/* Define if you have the RAND_add function.  */
+#undef HAVE_RAND_ADD
+
+/* Define if you have the RAND_egd function.  */
+#undef HAVE_RAND_EGD
+
+/* Define if you have the RAND_file_name function.  */
+#undef HAVE_RAND_FILE_NAME
+
+/* Define if you have the RAND_load_file function.  */
+#undef HAVE_RAND_LOAD_FILE
+
+/* Define if you have the RAND_write_file function.  */
+#undef HAVE_RAND_WRITE_FILE
+
 /* Define if you have the XCloseIM function.  */
 #undef HAVE_XCLOSEIM
 
@@ -149,6 +164,39 @@
 /* Define if you have the dhcp_option function.  */
 #undef HAVE_DHCP_OPTION
 
+/* Define if you have the dirfd function.  */
+#undef HAVE_DIRFD
+
+/* Define if you have the event_base_free function.  */
+#undef HAVE_EVENT_BASE_FREE
+
+/* Define if you have the event_base_get_method function.  */
+#undef HAVE_EVENT_BASE_GET_METHOD
+
+/* Define if you have the event_base_new function.  */
+#undef HAVE_EVENT_BASE_NEW
+
+/* Define if you have the event_base_set function.  */
+#undef HAVE_EVENT_BASE_SET
+
+/* Define if you have the event_config_set_flag function.  */
+#undef HAVE_EVENT_CONFIG_SET_FLAG
+
+/* Define if you have the event_get_method function.  */
+#undef HAVE_EVENT_GET_METHOD
+
+/* Define if you have the event_get_struct_event_size function.  */
+#undef HAVE_EVENT_GET_STRUCT_EVENT_SIZE
+
+/* Define if you have the event_get_version function.  */
+#undef HAVE_EVENT_GET_VERSION
+
+/* Define if you have the event_reinit function.  */
+#undef HAVE_EVENT_REINIT
+
+/* Define if you have the fallocate function.  */
+#undef HAVE_FALLOCATE
+
 /* Define if you have the freeaddrinfo function.  */
 #undef HAVE_FREEADDRINFO
 
@@ -188,8 +236,14 @@
 /* Define if you have the inet_pton function.  */
 #undef HAVE_INET_PTON
 
+/* Define if you have the kqueue function.  */
+#undef HAVE_KQUEUE
+
 /* Define if you have the malloc_trim function.  */
 #undef HAVE_MALLOC_TRIM
+
+/* Define if you have the mallopt function.  */
+#undef HAVE_MALLOPT
 
 /* Define if you have the memchr function.  */
 #undef HAVE_MEMCHR
@@ -248,8 +302,14 @@
 /* Define if you have the png_set_strip_alpha function.  */
 #undef HAVE_PNG_SET_STRIP_ALPHA
 
+/* Define if you have the poll function.  */
+#undef HAVE_POLL
+
 /* Define if you have the popen function.  */
 #undef HAVE_POPEN
+
+/* Define if you have the posix_fallocate function.  */
+#undef HAVE_POSIX_FALLOCATE
 
 /* Define if you have the pthread_sigmask function.  */
 #undef HAVE_PTHREAD_SIGMASK
@@ -259,6 +319,9 @@
 
 /* Define if you have the resume_thread function.  */
 #undef HAVE_RESUME_THREAD
+
+/* Define if you have the rsvg_handle_render_cairo function.  */
+#undef HAVE_RSVG_HANDLE_RENDER_CAIRO
 
 /* Define if you have the select function.  */
 #undef HAVE_SELECT
@@ -332,6 +395,9 @@
 /* Define if you have the strrchr function.  */
 #undef HAVE_STRRCHR
 
+/* Define if you have the strspn function.  */
+#undef HAVE_STRSPN
+
 /* Define if you have the strstr function.  */
 #undef HAVE_STRSTR
 
@@ -404,6 +470,9 @@
 /* Define if you have the <bzlib.h> header file.  */
 #undef HAVE_BZLIB_H
 
+/* Define if you have the <cairo.h> header file.  */
+#undef HAVE_CAIRO_H
+
 /* Define if you have the <cygwin/process.h> header file.  */
 #undef HAVE_CYGWIN_PROCESS_H
 
@@ -418,6 +487,12 @@
 
 /* Define if you have the <endian.h> header file.  */
 #undef HAVE_ENDIAN_H
+
+/* Define if you have the <ev-event.h> header file.  */
+#undef HAVE_EV_EVENT_H
+
+/* Define if you have the <event.h> header file.  */
+#undef HAVE_EVENT_H
 
 /* Define if you have the <fcntl.h> header file.  */
 #undef HAVE_FCNTL_H
@@ -464,8 +539,20 @@
 /* Define if you have the <libpng/png.h> header file.  */
 #undef HAVE_LIBPNG_PNG_H
 
+/* Define if you have the <librsvg/librsvg-features.h> header file.  */
+#undef HAVE_LIBRSVG_LIBRSVG_FEATURES_H
+
+/* Define if you have the <librsvg/rsvg-cairo.h> header file.  */
+#undef HAVE_LIBRSVG_RSVG_CAIRO_H
+
+/* Define if you have the <librsvg/rsvg.h> header file.  */
+#undef HAVE_LIBRSVG_RSVG_H
+
 /* Define if you have the <limits.h> header file.  */
 #undef HAVE_LIMITS_H
+
+/* Define if you have the <linux/falloc.h> header file.  */
+#undef HAVE_LINUX_FALLOC_H
 
 /* Define if you have the <linux/fb.h> header file.  */
 #undef HAVE_LINUX_FB_H
@@ -505,6 +592,9 @@
 
 /* Define if you have the <png.h> header file.  */
 #undef HAVE_PNG_H
+
+/* Define if you have the <poll.h> header file.  */
+#undef HAVE_POLL_H
 
 /* Define if you have the <process.h> header file.  */
 #undef HAVE_PROCESS_H
@@ -617,6 +707,12 @@
 /* Define if you have the dl library (-ldl).  */
 #undef HAVE_LIBDL
 
+/* Define if you have the ev library (-lev).  */
+#undef HAVE_LIBEV
+
+/* Define if you have the event library (-levent).  */
+#undef HAVE_LIBEVENT
+
 /* Define if you have the gpm library (-lgpm).  */
 #undef HAVE_LIBGPM
 
@@ -646,6 +742,9 @@
 
 /* Define if you have the pthread library (-lpthread).  */
 #undef HAVE_LIBPTHREAD
+
+/* Define if you have the rsvg-2 library (-lrsvg-2).  */
+#undef HAVE_LIBRSVG_2
 
 /* Define if you have the rt library (-lrt).  */
 #undef HAVE_LIBRT
@@ -686,6 +785,9 @@
 
 /* */
 #undef VERSION
+
+/* */
+#undef HAVE_OPENMP
 
 /* */
 #undef HAVE_TYPEOF
@@ -746,6 +848,9 @@
 
 /* */
 #undef HAVE_STRCSPN
+
+/* */
+#undef HAVE_STRSPN
 
 /* */
 #undef HAVE_STRSTR
@@ -875,6 +980,9 @@
 
 /* Tiff by Brain */
 #undef HAVE_TIFF
+
+/* SVG */
+#undef HAVE_SVG
 
 /* Gpm_Event has wdx and wdy */
 #undef HAVE_WDX_WDY

@@ -322,8 +322,15 @@ unsigned char *ath_init_driver(unsigned char *param, unsigned char *display)
 	}
 	fcntl(rpipe, F_SETFL, O_NONBLOCK);
 	fcntl(wpipe, F_SETFL, O_NONBLOCK);
-	set_handlers(rpipe, ath_get_event, NULL, NULL, NULL);
+	set_handlers(rpipe, ath_get_event, NULL, NULL);
 	ath_app_thread_id = spawn_thread("links_app", (void *)ath_app_thread, 0, 0, NULL);
+	if (ath_app_thread_id == -1) {
+		close(rpipe);
+		close(wpipe);
+		delete ath_lock; ath_lock = NULL;
+		delete ath_links_app;
+		return stracpy((unsigned char *)"Could not spawn thread.\n");
+	}
 	resume_thread(ath_app_thread_id);
 	if ((d = new Desktop)) {
 		ath_cs_desktop = d->GetColorSpace();
@@ -363,7 +370,7 @@ unsigned char *ath_init_driver(unsigned char *param, unsigned char *display)
 			atheos_driver.depth = 0x7a;
 			break;
 		default:
-			internal((unsigned char *)"unknown depth");
+			internal("unknown depth");
 	}
 	return NULL;
 }
@@ -371,15 +378,21 @@ unsigned char *ath_init_driver(unsigned char *param, unsigned char *display)
 void ath_shutdown_driver()
 {
 	debug((unsigned char *)"D");
+	set_handlers(rpipe, NULL, NULL, NULL);
 	close(rpipe);
 	close(wpipe);
-	set_handlers(rpipe, NULL, NULL, NULL, NULL);
 	ath_lock->Unlock();
 	debug((unsigned char *)"DD");
 	ath_links_app->PostMessage(M_TERMINATE);
 	debug((unsigned char *)"E");
 	/*delete ath_lock; ath_lock = NULL;*/
 	debug((unsigned char *)"F");
+}
+
+void ath_after_fork()
+{
+	close(rpipe);
+	close(wpipe);
 }
 
 struct graphics_device *ath_init_device()
@@ -393,7 +406,7 @@ struct graphics_device *ath_init_device()
 	win = new LinksWindow(Rect(ath_win_x_pos, ath_win_y_pos, ath_win_x_pos + ath_win_x_size, ath_win_y_pos + ath_win_y_size));
 	debug((unsigned char *)"2");
 	if (!win) {
-		if (out_of_memory(NULL, 0))
+		if (out_of_memory(0, NULL, 0))
 			goto retry;
 		mem_free(dev);
 		return NULL;
@@ -402,7 +415,7 @@ struct graphics_device *ath_init_device()
 	retry2:
 	view = new LinksView(win);
 	if (!view) {
-		if (out_of_memory(NULL, 0))
+		if (out_of_memory(0, NULL, 0))
 			goto retry2;
 		delete win;
 		mem_free(dev);
@@ -452,7 +465,7 @@ int ath_get_empty_bitmap(struct bitmap *bmp)
 	retry:
 	b = new Bitmap(bmp->x, bmp->y, ath_cs_bmp, Bitmap::SHARE_FRAMEBUFFER);
 	if (!b) {
-		if (out_of_memory(NULL, 0))
+		if (out_of_memory(0, NULL, 0))
 			goto retry;
 		bmp->data = NULL;
 		bmp->flags = NULL;
@@ -615,8 +628,10 @@ struct graphics_driver atheos_driver = {
 	ath_init_device,
 	ath_shutdown_device,
 	ath_shutdown_driver,
-	dummy_emergency_shutdown,
+	NULL,
+	ath_after_fork,
 	ath_get_driver_param,
+	NULL,
 	NULL,
 	NULL,
 	ath_get_empty_bitmap,
@@ -642,7 +657,7 @@ struct graphics_driver atheos_driver = {
 	NULL,				/* get_clipboard_text */
 	0,				/* depth */
 	0, 0,				/* size */
-	GD_NO_OS_SHELL,			/* flags */
+	GD_NO_OS_SHELL | GD_NO_LIBEVENT,/* flags */
 	0,				/* codepage */
 	NULL,				/* shell */
 };

@@ -287,6 +287,19 @@ size_t strcspn(const char *s, const char *reject)
 	return r;
 }
 #endif
+#ifndef HAVE_STRSPN
+size_t strspn(const char *s, const char *accept)
+{
+	size_t r;
+	for (r = 0; *s; r++, s++) {
+		const char *rj;
+		for (rj = accept; *rj; rj++) if (*s == *rj) goto ac;
+		break;
+		ac:;
+	}
+	return r;
+}
+#endif
 #ifndef HAVE_STRSTR
 char *strstr(const char *haystack, const char *needle)
 {

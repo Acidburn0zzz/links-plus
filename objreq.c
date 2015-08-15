@@ -79,7 +79,7 @@ static int auth_cancel(struct dialog_data *dlg, struct dialog_item_data *item)
 	struct object_request *rq = find_rq((my_intptr_t)dlg->dlg->udata2);
 	if (rq) {
 		rq->state = O_OK;
-		if (rq->timer != -1) kill_timer(rq->timer);
+		if (rq->timer != NULL) kill_timer(rq->timer);
 		rq->timer = install_timer(0, (void (*)(void *))object_timer, rq);
 		if (!rq->ce) (rq->ce = rq->ce_internal)->refcount++;
 	}
@@ -198,7 +198,7 @@ void request_object(struct terminal *term, unsigned char *url, unsigned char *pr
 	rq->cache = cache;
 	rq->upcall = upcall;
 	rq->data = data;
-	rq->timer = -1;
+	rq->timer = NULL;
 	rq->z = (uttime)get_time() - STAT_UPDATE_MAX;
 	rq->last_update = rq->z;
 	rq->last_bytes = 0;
@@ -290,7 +290,7 @@ static void objreq_end(struct status *stat, struct object_request *rq)
 		if (!rq->ce) (rq->ce = stat->ce)->refcount++;
 	}
 	tm:
-	if (rq->timer != -1) kill_timer(rq->timer);
+	if (rq->timer != NULL) kill_timer(rq->timer);
 	rq->timer = install_timer(0, (void (*)(void *))object_timer, rq);
 }
 
@@ -302,7 +302,7 @@ static void object_timer(struct object_request *rq)
 
 	last = rq->last_bytes;
 	if (rq->ce) rq->last_bytes = rq->ce->length;
-	rq->timer = -1;
+	rq->timer = NULL;
 	if (rq->stat.state < 0 && (!rq->ce_internal || (!rq->ce_internal->redirect && rq->ce_internal->http_code != 401 && rq->ce_internal->http_code != 407) || rq->stat.state == S_CYCLIC_REDIRECT)) {
 		if (rq->ce_internal && rq->stat.state != S_CYCLIC_REDIRECT) {
 			rq->state = rq->stat.state != S__OK ? O_INCOMPLETE : O_OK;
@@ -331,7 +331,7 @@ void release_object_get_stat(struct object_request **rqq, struct status *news, i
 	*rqq = NULL;
 	if (--rq->refcount) return;
 	change_connection(&rq->stat, news, pri);
-	if (rq->timer != -1) kill_timer(rq->timer);
+	if (rq->timer != NULL) kill_timer(rq->timer);
 	if (rq->ce_internal) rq->ce_internal->refcount--;
 	if (rq->ce) rq->ce->refcount--;
 	mem_free(rq->orig_url);

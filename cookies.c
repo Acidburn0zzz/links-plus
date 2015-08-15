@@ -9,7 +9,7 @@
 #define ACCEPT_NONE	0
 #define ACCEPT_ALL	1
 
-//static int accept_cookies = ACCEPT_NONE;
+//static int accept_cookies = ACCEPT_ALL;
 
 struct list_head all_cookies = { &all_cookies, &all_cookies };
 
@@ -89,11 +89,10 @@ int set_cookie(struct terminal *term, unsigned char *url, unsigned char *str)
 	struct cookie *cookie;
 	struct c_server *cs;
 	unsigned char *p, *q, *s, *server, *date;
+
 	d_opt = &dd_opt;
-    int accept_cookies = dds.allow_cookies;
-	if (accept_cookies == ACCEPT_NONE) {
-		return 0;
-	}
+	int accept_cookies = dds.allow_cookies;
+	if (accept_cookies == ACCEPT_NONE) return 0;
 	for (p = str; *p != ';' && *p; p++) { /*if (WHITECHAR(*p)) return 0;*/ }
 	for (q = str; *q != '='; q++) if (!*q || q >= p) {
 		noval = 1;

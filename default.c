@@ -570,9 +570,8 @@ unsigned char *read_config_file(unsigned char *name)
 	int l = 0;
 	unsigned char *s;
 	int rs;
-	EINTRLOOP(h, open(cast_const_char name, O_RDONLY | O_NOCTTY));
+	h = c_open(name, O_RDONLY | O_NOCTTY);
 	if (h == -1) return NULL;
-	set_bin(h);
 	s = init_str();
 	while ((r = hard_read(h, cfg_buffer, FILE_BUF)) > 0) {
 		int i;
@@ -608,7 +607,7 @@ try_new_count:
 		}
 	}
 	add_num_to_str(&tmp_name, &tmp_namel, count);
-	EINTRLOOP(h, open(cast_const_char tmp_name, O_WRONLY | O_NOCTTY | O_CREAT | O_TRUNC | O_EXCL, 0600));
+	h = c_open3(tmp_name, O_WRONLY | O_NOCTTY | O_CREAT | O_TRUNC | O_EXCL, 0600);
 	if (h == -1) {
 		err = errno;
 		if (err == EEXIST && count < MAXINT) {
@@ -618,7 +617,6 @@ try_new_count:
 		}
 		goto free_err;
 	}
-	set_bin(h);
 	rr = (int)strlen(cast_const_char c);
 	if (hard_write(h, c, rr) != rr) {
 		err = errno;
@@ -670,12 +668,19 @@ static unsigned char *get_home(int *n)
 {
 	struct stat st;
 	int rs;
-	unsigned char *home = NULL;
+	unsigned char *home;
 	unsigned char *home_links;
-	unsigned char *config_dir = stracpy(cast_uchar getenv("CONFIG_DIR"));
+	unsigned char *config_dir;
+
+	EINTRLOOP(rs, stat(".", &st));
+	if (rs && (home = cast_uchar getenv("HOME")))
+		EINTRLOOP(rs, chdir(cast_const_char home));
+	home = NULL;
+
+	config_dir = stracpy(cast_uchar getenv("CONFIG_DIR"));
 
 	if (n) *n = 1;
-#ifdef WIN32
+#ifdef WIN
 	if (!home) {
 		home = stracpy(cast_uchar getenv("APPDATA"));
 #ifdef HAVE_CYGWIN_CONV_PATH
@@ -709,7 +714,7 @@ skip_path_conv:;
 	}
 #endif
 	if (!home) home = stracpy(cast_uchar getenv("HOME"));
-#ifdef WIN32
+#ifdef WIN
 /* When we run in Cygwin without Cygwin environment, it reports home "/".
    Unfortunatelly, it can't write anything to that directory */
 	if (home && !strcmp(cast_const_char home, "/")) {
@@ -927,7 +932,7 @@ static unsigned char *dbl_rd(struct option *o, unsigned char *c)
 static void dbl_wr(struct option *o, unsigned char **s, int *l)
 {
 	unsigned char number[80];
-	snprintf(cast_char number, sizeof number, "%.4f", *(double*)o->ptr);
+	snprintf(cast_char number, sizeof number, "%.6f", *(double*)o->ptr);
 
 	add_nm(o, s, l);
 	add_to_str(s, l, number);
@@ -1565,6 +1570,12 @@ fprintf(stdout, "%s%s%s%s%s%s\n",
 " -bind-address-ipv6 <ipv6 address>\n"
 "  Use a specific local IPv6 address.\n"
 "\n"
+" -no-libevent\n"
+"  Don't use libevent library.\n"
+"\n"
+" -no-openmp\n"
+"  Don't use OpenMP.\n"
+"\n"
 " -async-dns <0>/<1>\n"
 "  Asynchronous DNS resolver on(1)/off(0).\n"
 "\n"
@@ -1956,6 +1967,8 @@ unsigned char default_target[MAX_STR_LEN] ="";
 unsigned char *links_home = NULL;
 int first_use = 0;
 
+int disable_libevent = 0;
+int disable_openmp = 0;
 int no_connect = 0;
 int base_session = 0;
 int dmp = 0;
@@ -2040,7 +2053,7 @@ struct document_setup dds = {
 	0, /* num_links */
 	0, /* table_order */
 	0, /* auto_refresh */
-    0, /* allow_cookies */
+	0, /* allow_cookies */
 	20, /* font_size */
 	1, /* display images */
 	100, /* image scale */
@@ -2086,6 +2099,8 @@ static struct option links_options[] = {
 	{1, gen_cmd, num_rd, num_wr, 1, 9999, &unrestartable_receive_timeout, "unrestartable_receive_timeout", "unrestartable-receive-timeout"},
 	{1, gen_cmd, ip_rd, str_wr, 0, 16, bind_ip_address, "bind_address", "bind-address"},
 	{1, gen_cmd, ipv6_rd, str_wr, 0, INET6_ADDRSTRLEN, bind_ipv6_address, "bind_address_ipv6", "bind-address-ipv6"},
+	{1, set_cmd, NULL, NULL, 0, 0, &disable_libevent, NULL, "no-libevent"},
+	{1, set_cmd, NULL, NULL, 0, 0, &disable_openmp, NULL, "no-openmp"},
 	{1, gen_cmd, num_rd, num_wr, 0, 1, &async_lookup, "async_dns", "async-dns"},
 	{1, gen_cmd, num_rd, num_wr, 0, 1, &download_utime, "download_utime", "download-utime"},
 	{1, gen_cmd, num_rd, num_wr, 0, 999, &max_format_cache_entries, "format_cache_size", "format-cache-size"},

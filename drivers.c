@@ -90,10 +90,6 @@ int dummy_unblock(struct graphics_device *dev)
 	return 0;
 }
 
-void dummy_emergency_shutdown(void)
-{
-}
-
 #if 0
 static unsigned char *list_graphics_drivers(void)
 {
@@ -191,6 +187,7 @@ void shutdown_graphics(void)
 		if (drv->shell) mem_free(drv->shell);
 		drv->shutdown_driver();
 		drv = NULL;
+		F = 0;
 	}
 }
 
@@ -227,7 +224,7 @@ struct graphics_device **virtual_devices;
 int n_virtual_devices = 0;
 struct graphics_device *current_virtual_device;
 
-static int virtual_device_timer;
+static struct timer *virtual_device_timer;
 
 int init_virtual_devices(struct graphics_driver *drv, int n)
 {
@@ -238,7 +235,7 @@ int init_virtual_devices(struct graphics_driver *drv, int n)
 	if ((unsigned)n > MAXINT / sizeof(struct graphics_device *)) overalloc();
 	virtual_devices = mem_calloc(n * sizeof(struct graphics_device *));
 	n_virtual_devices = n;
-	virtual_device_timer = -1;
+	virtual_device_timer = NULL;
 	current_virtual_device = NULL;
 	return 0;
 }
@@ -260,7 +257,7 @@ struct graphics_device *init_virtual_device(void)
 
 static void virtual_device_timer_fn(void *p)
 {
-	virtual_device_timer = -1;
+	virtual_device_timer = NULL;
 	if (current_virtual_device && current_virtual_device->redraw_handler) {
 		drv->set_clip_area(current_virtual_device, &current_virtual_device->size);
 		current_virtual_device->redraw_handler(current_virtual_device, &current_virtual_device->size);
@@ -283,7 +280,7 @@ void switch_virtual_device(int i)
 	if (i < 0 || i >= n_virtual_devices || !virtual_devices[i]) return;
 	current_virtual_device = virtual_devices[i];
 	ok_switch:
-	if (virtual_device_timer == -1)
+	if (virtual_device_timer == NULL)
 		virtual_device_timer = install_timer(0, virtual_device_timer_fn, NULL);
 }
 
@@ -334,7 +331,7 @@ void shutdown_virtual_devices(void)
 	for (i = 0; i < n_virtual_devices; i++) if (virtual_devices[i]) internal("shutdown_virtual_devices: virtual device %d is still active", i);
 	mem_free(virtual_devices);
 	n_virtual_devices = 0;
-	if (virtual_device_timer != -1) kill_timer(virtual_device_timer), virtual_device_timer = -1;
+	if (virtual_device_timer != NULL) kill_timer(virtual_device_timer), virtual_device_timer = NULL;
 }
 
 #endif

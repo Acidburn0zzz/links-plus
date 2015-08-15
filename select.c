@@ -13,31 +13,30 @@
 struct thread {
 	void (*read_func)(void *);
 	void (*write_func)(void *);
-	void (*error_func)(void *);
 	void *data;
+#ifdef USE_LIBEVENT
+	struct event *read_event;
+	struct event *write_event;
+#endif
 };
 
-static struct thread threads[FD_SETSIZE];
+static struct thread *threads = DUMMY;
+static int n_threads = 0;
 
 static fd_set w_read;
 static fd_set w_write;
-static fd_set w_error;
 
 static fd_set x_read;
 static fd_set x_write;
-static fd_set x_error;
 
 static int w_max;
-
-static int timer_id = 0;
 
 struct timer {
 	struct timer *next;
 	struct timer *prev;
-	ttime interval;
+	uttime interval;
 	void (*func)(void *);
 	void *data;
-	int id;
 };
 
 static struct list_head timers = {&timers, &timers};
@@ -54,56 +53,69 @@ void portable_sleep(unsigned msec)
 }
 #endif
 
-int can_write(int fd)
+static int can_do_io(int fd, int wr, int sec)
 {
-	fd_set fds;
-	struct timeval tv = {0, 0};
+#if defined(USE_POLL)
+	struct pollfd p;
 	int rs;
+	p.fd = fd;
+	p.events = !wr ? POLLIN : POLLOUT;
+	EINTRLOOP(rs, poll(&p, 1, sec < 0 ? -1 : sec * 1000));
+	if (rs < 0) fatal_exit("ERROR: poll for %s (%d) failed: %s", !wr ? "read" : "write", fd, strerror(errno));
+	if (!rs) return 0;
+	if (p.revents & POLLNVAL) fatal_exit("ERROR: poll for %s (%d) failed: %s", !wr ? "read" : "write", fd, strerror(errno));
+	return 1;
+#else
+	fd_set fds;
+	struct timeval tv, *tvp;
+	int rs;
+	if (sec >= 0) {
+		tv.tv_sec = sec;
+		tv.tv_usec = 0;
+		tvp = &tv;
+	} else {
+		tvp = NULL;
+	}
 	FD_ZERO(&fds);
 	if (fd < 0)
-		internal("can_write: handle %d", fd);
+		internal("can_do_io: handle %d", fd);
 	if (fd >= (int)FD_SETSIZE) {
 		fatal_exit("too big handle %d", fd);
 	}
 	FD_SET(fd, &fds);
-	EINTRLOOP(rs, select(fd + 1, NULL, &fds, NULL, &tv));
-	if (rs < 0) fatal_exit("ERROR: select for write (%d) failed: %s", fd, strerror(errno));
+	if (!wr)
+		EINTRLOOP(rs, select(fd + 1, &fds, NULL, NULL, tvp));
+	else
+		EINTRLOOP(rs, select(fd + 1, NULL, &fds, NULL, tvp));
+	if (rs < 0) fatal_exit("ERROR: select for %s (%d) failed: %s", !wr ? "read" : "write", fd, strerror(errno));
 	return rs;
+#endif
+}
+
+int can_write(int fd)
+{
+	return can_do_io(fd, 1, 0);
 }
 
 int can_read_timeout(int fd, int sec)
 {
-	fd_set fds;
-	struct timeval tv;
-	int rs;
-	tv.tv_sec = sec;
-	tv.tv_usec = 0;
-	FD_ZERO(&fds);
-	if (fd < 0)
-		internal("can_read: handle %d", fd);
-	if (fd >= (int)FD_SETSIZE) {
-		fatal_exit("too big handle %d", fd);
-	}
-	FD_SET(fd, &fds);
-	EINTRLOOP(rs, select(fd + 1, &fds, NULL, NULL, &tv));
-	if (rs < 0) fatal_exit("ERROR: select for read (%d) failed: %s", fd, strerror(errno));
-	return rs;
+	return can_do_io(fd, 0, sec);
 }
 
 int can_read(int fd)
 {
-	return can_read_timeout(fd, 0);
+	return can_do_io(fd, 0, 0);
 }
 
 
 unsigned long select_info(int type)
 {
 	int i = 0, j;
-	struct cache_entry *ce;
+	struct timer *ce;
 	switch (type) {
 		case CI_FILES:
-			for (j = 0; j < (int)FD_SETSIZE; j++)
-				if (threads[j].read_func || threads[j].write_func || threads[j].error_func) i++;
+			for (j = 0; j < w_max; j++)
+				if (threads[j].read_func || threads[j].write_func) i++;
 			return i;
 		case CI_TIMERS:
 			foreach(ce, timers) i++;
@@ -174,103 +186,391 @@ void check_bottom_halves(void)
 
 #define CHK_BH if (!list_empty(bottom_halves)) check_bottom_halves()
 
+
+static void restrict_fds(void)
+{
+#if defined(RLIMIT_OFILE) && !defined(RLIMIT_NOFILE)
+#define RLIMIT_NOFILE RLIMIT_OFILE
+#endif
+#if defined(HAVE_GETRLIMIT) && defined(HAVE_SETRLIMIT) && defined(RLIMIT_NOFILE)
+	struct rlimit limit;
+	int rs;
+	EINTRLOOP(rs, getrlimit(RLIMIT_NOFILE, &limit));
+	if (rs)
+		goto skip_limit;
+	if (limit.rlim_cur > FD_SETSIZE) {
+		limit.rlim_cur = FD_SETSIZE;
+		EINTRLOOP(rs, setrlimit(RLIMIT_NOFILE, &limit));
+	}
+skip_limit:;
+#endif
+}
+
+unsigned char *sh_file;
+int sh_line;
+
+#ifdef USE_LIBEVENT
+
+static int event_enabled = 0;
+
+#ifndef HAVE_EVENT_GET_STRUCT_EVENT_SIZE
+#define sizeof_struct_event		sizeof(struct event)
+#else
+#define sizeof_struct_event		(event_get_struct_event_size())
+#endif
+
+static inline struct event *timer_event(struct timer *tm)
+{
+	return (struct event *)((unsigned char *)tm - sizeof_struct_event);
+}
+
+#ifdef HAVE_EVENT_BASE_SET
+static struct event_base *event_base;
+#endif
+
+static void event_callback(int h, short ev, void *data)
+{
+#ifndef EV_PERSIST
+	if (event_add((struct event *)data, NULL) == -1)
+		fatal_exit("ERROR: event_add failed: %s", strerror(errno));
+#endif
+	if (!(ev & EV_READ) == !(ev & EV_WRITE))
+		internal("event_callback: invalid flags %d on handle %d", (int)ev, h);
+	if (ev & EV_READ) {
+#if defined(HAVE_LIBEV)
+		/* Old versions of libev badly interact with fork and fire
+		 * events spuriously. */
+		if (ev_version_major() < 4 && !can_read(h)) return;
+#endif
+		pr(threads[h].read_func(threads[h].data)) { }
+	} else {
+#if defined(HAVE_LIBEV)
+		/* Old versions of libev badly interact with fork and fire
+		 * events spuriously. */
+		if (ev_version_major() < 4 && !can_write(h)) return;
+#endif
+		pr(threads[h].write_func(threads[h].data)) { }
+	}
+	CHK_BH;
+}
+
+static void timer_callback(int h, short ev, void *data)
+{
+	struct timer *tm = data;
+	pr(tm->func(tm->data)) { }
+	kill_timer(tm);
+	CHK_BH;
+}
+
+static void set_event_for_action(int h, void (*func)(void *), struct event **evptr, short evtype)
+{
+	if (func) {
+		if (!*evptr) {
+#ifdef EV_PERSIST
+			evtype |= EV_PERSIST;
+#endif
+			*evptr = mem_alloc(sizeof_struct_event);
+			event_set(*evptr, h, evtype, event_callback, *evptr);
+#ifdef HAVE_EVENT_BASE_SET
+			if (event_base_set(event_base, *evptr) == -1)
+				fatal_exit("ERROR: event_base_set failed: %s at %s:%d, handle %d", strerror(errno), sh_file, sh_line, h);
+#endif
+		}
+		if (event_add(*evptr, NULL) == -1)
+			fatal_exit("ERROR: event_add failed: %s at %s:%d, handle %d", strerror(errno), sh_file, sh_line, h);
+	} else {
+		if (*evptr) {
+			if (event_del(*evptr) == -1)
+				fatal_exit("ERROR: event_del failed: %s at %s:%d, handle %d", strerror(errno), sh_file, sh_line, h);
+		}
+	}
+}
+
+static void set_events_for_handle(int h)
+{
+	set_event_for_action(h, threads[h].read_func, &threads[h].read_event, EV_READ);
+	set_event_for_action(h, threads[h].write_func, &threads[h].write_event, EV_WRITE);
+}
+
+static void set_event_for_timer(struct timer *tm)
+{
+	struct timeval tv;
+	struct event *ev = timer_event(tm);
+	timeout_set(ev, timer_callback, tm);
+#ifdef HAVE_EVENT_BASE_SET
+	if (event_base_set(event_base, ev) == -1)
+		fatal_exit("ERROR: event_base_set failed: %s", strerror(errno));
+#endif
+	tv.tv_sec = tm->interval / 1000;
+	tv.tv_usec = (tm->interval % 1000) * 1000;
+#if defined(HAVE_LIBEV)
+	if (!tm->interval && ev_version_major() < 4) {
+		/* libev bug */
+		tv.tv_usec = 1;
+	}
+#endif
+	if (timeout_add(ev, &tv) == -1)
+		fatal_exit("ERROR: timeout_add failed: %s", strerror(errno));
+}
+
+static void enable_libevent(void)
+{
+	int i;
+	struct timer *tm;
+
+	if (disable_libevent)
+		return;
+
+#if !defined(NO_FORK_ON_EXIT) && defined(HAVE_KQUEUE) && !defined(HAVE_EVENT_REINIT)
+	/* kqueue doesn't work after fork */
+	if (!F)
+		return;
+#endif
+
+#if defined(HAVE_EVENT_CONFIG_SET_FLAG)
+	{
+		struct event_config *cfg;
+		cfg = event_config_new();
+		if (!cfg)
+			return;
+		if (event_config_set_flag(cfg, EVENT_BASE_FLAG_NOLOCK) == -1) {
+			event_config_free(cfg);
+			return;
+		}
+		event_base = event_base_new_with_config(cfg);
+		event_config_free(cfg);
+		if (!event_base)
+			return;
+	}
+#elif defined(HAVE_EVENT_BASE_NEW)
+	event_base = event_base_new();
+	if (!event_base)
+		return;
+#elif defined(HAVE_EVENT_BASE_SET)
+	event_base = event_init();
+	if (!event_base)
+		return;
+#else
+	event_init();
+#endif
+	event_enabled = 1;
+
+	sh_file = (unsigned char *)__FILE__;
+	sh_line = __LINE__;
+	for (i = 0; i < w_max; i++)
+		set_events_for_handle(i);
+
+	foreach(tm, timers)
+		set_event_for_timer(tm);
+}
+
+static void terminate_libevent(void)
+{
+	int i;
+	if (event_enabled) {
+		for (i = 0; i < n_threads; i++) {
+			set_event_for_action(i, NULL, &threads[i].read_event, EV_READ);
+			if (threads[i].read_event)
+				mem_free(threads[i].read_event);
+			set_event_for_action(i, NULL, &threads[i].write_event, EV_WRITE);
+			if (threads[i].write_event)
+				mem_free(threads[i].write_event);
+		}
+#ifdef HAVE_EVENT_BASE_FREE
+		event_base_free(event_base);
+#endif
+		event_enabled = 0;
+	}
+}
+
+static void do_event_loop(int flags)
+{
+	int e;
+#ifdef HAVE_EVENT_BASE_SET
+	e = event_base_loop(event_base, flags);
+#else
+	e = event_loop(flags);
+#endif
+	if (e == -1)
+		fatal_exit("ERROR: event_base_loop failed: %s", strerror(errno));
+}
+
+#endif
+
+void add_event_string(unsigned char **s, int *l, struct terminal *term)
+{
+#ifdef USE_LIBEVENT
+	if (!event_enabled)
+#endif
+		add_to_str(s, l, _(TEXT_(T_SELECT_SYSCALL), term));
+#ifdef USE_LIBEVENT
+	if (!event_enabled)
+		add_to_str(s, l, cast_uchar " (");
+#ifdef HAVE_LIBEVENT
+	add_to_str(s, l, cast_uchar "LibEvent");
+#elif defined(HAVE_LIBEV)
+	add_to_str(s, l, cast_uchar "LibEv");
+#else
+	add_to_str(s, l, cast_uchar "LibEvent");
+#endif
+#ifdef HAVE_EVENT_GET_VERSION
+	add_to_str(s, l, cast_uchar " ");
+	{
+#if defined(HAVE_LIBEV)
+				/* old libev report bogus version */
+		if (!strcasecmp(event_get_version(), "EV_VERSION_MAJOR.EV_VERSION_MINOR")) {
+			add_num_to_str(s, l, ev_version_major());
+			add_to_str(s, l, cast_uchar ".");
+			add_num_to_str(s, l, ev_version_minor());
+		} else
+#endif
+		add_to_str(s, l, cast_uchar event_get_version());
+	}
+#endif
+	if (!event_enabled) {
+		add_to_str(s, l, cast_uchar " ");
+		add_to_str(s, l, _(TEXT_(T_dISABLED), term));
+		add_to_str(s, l, cast_uchar ")");
+	} else {
+#if defined(HAVE_EVENT_BASE_GET_METHOD)
+		add_to_str(s, l, cast_uchar " ");
+		add_to_str(s, l, cast_uchar event_base_get_method(event_base));
+#elif defined(HAVE_EVENT_GET_METHOD)
+		add_to_str(s, l, cast_uchar " ");
+		add_to_str(s, l, cast_uchar event_get_method());
+#endif
+	}
+#endif
+}
+
+
 static ttime last_time;
 
 static void check_timers(void)
 {
-	ttime interval = (uttime)get_time() - (uttime)last_time;
+	uttime interval = (uttime)get_time() - (uttime)last_time;
 	struct timer * volatile t;	/* volatile because of setjmp */
-	foreach(t, timers) t->interval -= (uttime)interval;
-	/*ch:*/
-	foreach(t, timers) if (t->interval <= 0) {
-		struct timer *tt;
+	foreach(t, timers) {
+		if (t->interval < interval)
+			t->interval = 0;
+		else
+			t->interval -= (uttime)interval;
+	}
+	while (!list_empty(timers)) {
+		struct timer *t = (struct timer *)timers.next;
+		if (t->interval)
+			break;
 #ifdef DEBUG_CALLS
 		fprintf(stderr, "call: timer %p\n", t->func);
 #endif
-		pr(t->func(t->data)) {
-#ifdef OOPS
-			del_from_list((struct timer *)timers.next);
-			return;
-#endif
-		}
+		pr(t->func(t->data)) break;
 #ifdef DEBUG_CALLS
 		fprintf(stderr, "timer done\n");
 #endif
+		kill_timer(t);
 		CHK_BH;
-		tt = t->prev;
-		del_from_list(t);
-		mem_free(t);
-		t = tt;
-	} else break;
+	}
 	last_time += (uttime)interval;
 }
 
-int install_timer(ttime t, void (*func)(void *), void *data)
+struct timer *install_timer(ttime t, void (*func)(void *), void *data)
 {
 	struct timer *tm, *tt;
+#ifdef USE_LIBEVENT
+	{
+		unsigned char *q = mem_alloc(sizeof_struct_event + sizeof(struct timer));
+		tm = (struct timer *)(q + sizeof_struct_event);
+	}
+#else
 	tm = mem_alloc(sizeof(struct timer));
-	tm->interval = t;
+#endif
+	if (t < 0) t = 0;
+	tm->interval = (uttime)t;
 	tm->func = func;
 	tm->data = data;
-	new_id:
-	tm->id = timer_id;
-	timer_id++;
-	if (timer_id == MAXINT) timer_id = 0;
-	foreach(tt, timers) if (tt->id == tm->id) goto new_id;
-	foreach(tt, timers) if (tt->interval >= t) break;
-	add_at_pos(tt->prev, tm);
-	return tm->id;
+#ifdef USE_LIBEVENT
+	if (event_enabled) {
+		set_event_for_timer(tm);
+		add_to_list(timers, tm);
+	} else
+#endif
+	{
+		foreach(tt, timers) if (tt->interval >= (uttime)t) break;
+		add_at_pos(tt->prev, tm);
+	}
+	return tm;
 }
 
-void kill_timer(int id)
+void kill_timer(struct timer *tm)
 {
-	struct timer *tm;
-	int k = 0;
-	foreach(tm, timers) if (tm->id == id) {
-		struct timer *tt = tm;
-		del_from_list(tm);
-		tm = tm->prev;
-		mem_free(tt);
-		k++;
-	}
-	if (!k) internal("trying to kill nonexisting timer");
-	if (k >= 2) internal("more timers with same id");
+	del_from_list(tm);
+#ifdef USE_LIBEVENT
+	if (event_enabled)
+		timeout_del(timer_event(tm));
+	mem_free(timer_event(tm));
+#else
+	mem_free(tm);
+#endif
 }
 
 void *get_handler(int fd, int tp)
 {
 	if (fd < 0)
 		internal("get_handler: handle %d", fd);
-	if (fd >= (int)FD_SETSIZE) {
-		fatal_exit("too big handle %d", fd);
+	if (fd >= w_max) {
 		return NULL;
 	}
 	switch (tp) {
 		case H_READ:	return (void *)threads[fd].read_func;
 		case H_WRITE:	return (void *)threads[fd].write_func;
-		case H_ERROR:	return (void *)threads[fd].error_func;
 		case H_DATA:	return threads[fd].data;
 	}
 	internal("get_handler: bad type %d", tp);
 	return NULL;
 }
 
-void set_handlers(int fd, void (*read_func)(void *), void (*write_func)(void *), void (*error_func)(void *), void *data)
+void set_handlers_file_line(int fd, void (*read_func)(void *), void (*write_func)(void *), void *data)
 {
-#ifdef __GNU__
-	/* GNU Hurd has bugs w.r.t. exceptions */
-	error_func = NULL;
+#ifdef DEBUG
+	{
+		struct stat st;
+		if (fstat(fd, &st) == -1 && errno == EBADF) {
+			goto invl;
+		}
+	}
 #endif
 	if (fd < 0)
-		internal("set_handlers: handle %d", fd);
-	if (fd >= (int)FD_SETSIZE) {
-		fatal_exit("too big handle %d", fd);
-		return;
+		goto invl;
+#if defined(USE_POLL) && defined(USE_LIBEVENT)
+	if (!event_enabled)
+#endif
+		if (fd >= (int)FD_SETSIZE) {
+			fatal_exit("too big handle %d at %s:%d", fd, sh_file, sh_line);
+			return;
+		}
+	if (fd >= n_threads) {
+		threads = mem_realloc(threads, (fd + 1) * sizeof(struct thread));
+		memset(threads + n_threads, 0, (fd + 1 - n_threads) * sizeof(struct thread));
+		n_threads = fd + 1;
 	}
 	threads[fd].read_func = read_func;
 	threads[fd].write_func = write_func;
-	threads[fd].error_func = error_func;
 	threads[fd].data = data;
+	if (read_func || write_func) {
+		if (fd >= w_max) w_max = fd + 1;
+	} else if (fd == w_max - 1) {
+		int i;
+		for (i = fd - 1; i >= 0; i--)
+			if (threads[i].read_func || threads[i].write_func)
+				break;
+		w_max = i + 1;
+	}
+#ifdef USE_LIBEVENT
+	if (event_enabled) {
+		set_events_for_handle(fd);
+		return;
+	}
+#endif
 	if (read_func) FD_SET(fd, &w_read);
 	else {
 		FD_CLR(fd, &w_read);
@@ -281,20 +581,10 @@ void set_handlers(int fd, void (*read_func)(void *), void (*write_func)(void *),
 		FD_CLR(fd, &w_write);
 		FD_CLR(fd, &x_write);
 	}
-	if (error_func) FD_SET(fd, &w_error);
-	else {
-		FD_CLR(fd, &w_error);
-		FD_CLR(fd, &x_error);
-	}
-	if (read_func || write_func || error_func) {
-		if (fd >= w_max) w_max = fd + 1;
-	} else if (fd == w_max - 1) {
-		int i;
-		for (i = fd - 1; i >= 0; i--)
-			if (FD_ISSET(i, &w_read) || FD_ISSET(i, &w_write) ||
-			    FD_ISSET(i, &w_error)) break;
-		w_max = i + 1;
-	}
+	return;
+
+invl:
+	internal("invalid set_handlers call at %s:%d: %d, %p, %p, %p", sh_file, sh_line, fd, read_func, write_func, data);
 }
 
 void clear_events(int h, int blocking)
@@ -333,7 +623,8 @@ struct signal_handler {
 static volatile int signal_mask[NUM_SIGNALS];
 static volatile struct signal_handler signal_handlers[NUM_SIGNALS];
 
-static int signal_pipe[2];
+pid_t signal_pid;
+int signal_pipe[2];
 
 SIGNAL_HANDLER static void got_signal(int sig)
 {
@@ -344,6 +635,9 @@ SIGNAL_HANDLER static void got_signal(int sig)
 #if !defined(HAVE_SIGACTION)
 	do_signal(sig, got_signal);
 #endif
+
+	/* if we get signal from a forked child, don't do anything */
+	if (getpid() != signal_pid) goto ret;
 
 	if (sig >= NUM_SIGNALS || sig < 0) {
 		/*error("ERROR: bad signal number: %d", sig);*/
@@ -356,11 +650,11 @@ SIGNAL_HANDLER static void got_signal(int sig)
 		goto ret;
 	}
 	signal_mask[sig] = 1;
-	ret:
 	if (can_write(signal_pipe[1])) {
 		int wr;
 		EINTRLOOP(wr, (int)write(signal_pipe[1], "", 1));
 	}
+	ret:
 	errno = sv_errno;
 }
 
@@ -511,15 +805,29 @@ void set_sigcld(void)
 }
 #endif
 
+void reinit_child(void)
+{
+#if !defined(NO_SIGNAL_HANDLERS)
+	signal_pid = getpid();
+#endif
+#ifdef USE_LIBEVENT
+	if (event_enabled) {
+#ifdef HAVE_EVENT_REINIT
+		if (event_reinit(event_base))
+			fatal_exit("ERROR: event_reinit failed: %s", strerror(errno));
+#endif
+	}
+#endif
+}
+
 int terminate_loop = 0;
 
 void select_loop(void (*init)(void))
 {
-	struct stat st;
-	int rs;
-	EINTRLOOP(rs, stat(".", &st));
-	if (rs && getenv("HOME"))
-		EINTRLOOP(rs, chdir(getenv("HOME")));
+#if !defined(USE_LIBEVENT) || !defined(USE_POLL)
+	restrict_fds();
+#endif
+
 #if !defined(NO_SIGNAL_HANDLERS)
 #if defined(HAVE_SIGACTION)
 	memset(&sa_zero, 0, sizeof sa_zero);
@@ -529,27 +837,54 @@ void select_loop(void (*init)(void))
 #endif
 	FD_ZERO(&w_read);
 	FD_ZERO(&w_write);
-	FD_ZERO(&w_error);
 	w_max = 0;
 	last_time = get_time();
 	ignore_signals();
 #if !defined(NO_SIGNAL_HANDLERS)
+	signal_pid = getpid();
 	if (c_pipe(signal_pipe)) {
 		fatal_exit("ERROR: can't create pipe for signal handling");
 	}
 	set_nonblock(signal_pipe[0]);
 	set_nonblock(signal_pipe[1]);
-	set_handlers(signal_pipe[0], clear_events_ptr, NULL, NULL, (void *)(my_intptr_t)signal_pipe[0]);
+	set_handlers(signal_pipe[0], clear_events_ptr, NULL, (void *)(my_intptr_t)signal_pipe[0]);
 #endif
 	init();
 	CHK_BH;
+
+#ifdef USE_LIBEVENT
+#ifdef G
+	if (!F || !(drv->flags & GD_NO_LIBEVENT))
+#endif
+	{
+		enable_libevent();
+	}
+#if defined(USE_POLL)
+	if (!event_enabled) {
+		restrict_fds();
+	}
+#endif
+	if (event_enabled) {
+		while (!terminate_loop) {
+			check_signals();
+			if (!F) {
+				do_event_loop(EVLOOP_NONBLOCK);
+				check_signals();
+				redraw_all_terminals();
+			}
+			if (terminate_loop) break;
+			do_event_loop(EVLOOP_ONCE);
+		}
+		nopr();
+	} else
+#endif
+
 	while (!terminate_loop) {
 		volatile int n;	/* volatile because of setjmp */
 		int i;
 		struct timeval tv;
 		struct timeval *tm = NULL;
 		check_signals();
-		check_timers();
 		check_timers();
 		if (!F) redraw_all_terminals();
 #ifdef OS_BAD_SIGNALS
@@ -573,32 +908,22 @@ void select_loop(void (*init)(void))
 		}
 		memcpy(&x_read, &w_read, sizeof(fd_set));
 		memcpy(&x_write, &w_write, sizeof(fd_set));
-		memcpy(&x_error, &w_error, sizeof(fd_set));
-		/*rep_sel:*/
-		if (terminate_loop) {
+		if (terminate_loop) break;
+		/*if (!w_max && list_empty(timers)) {
 			break;
-		}
-		if (!w_max && list_empty(timers)) {
-			/*internal("select_loop: no more events to wait for");*/
-			break;
-		}
-		if (check_signals()) {
-			continue;
-		}
+		}*/
 			/*{
 				int i;
 				printf("\nR:");
 				for (i = 0; i < 256; i++) if (FD_ISSET(i, &x_read)) printf("%d,", i);
 				printf("\nW:");
 				for (i = 0; i < 256; i++) if (FD_ISSET(i, &x_write)) printf("%d,", i);
-				printf("\nE:");
-				for (i = 0; i < 256; i++) if (FD_ISSET(i, &x_error)) printf("%d,", i);
 				fflush(stdout);
 			}*/
 #ifdef DEBUG_CALLS
 		fprintf(stderr, "select\n");
 #endif
-		if ((n = loop_select(w_max, &x_read, &x_write, &x_error, tm)) < 0) {
+		if ((n = loop_select(w_max, &x_read, &x_write, NULL, tm)) < 0) {
 #ifdef DEBUG_CALLS
 			fprintf(stderr, "select intr\n");
 #endif
@@ -616,8 +941,8 @@ void select_loop(void (*init)(void))
 		i = -1;
 		while (n > 0 && ++i < w_max) {
 			int k = 0;
-			/*printf("C %d : %d,%d,%d\n",i,FD_ISSET(i, &w_read),FD_ISSET(i, &w_write),FD_ISSET(i, &w_error));
-			printf("A %d : %d,%d,%d\n",i,FD_ISSET(i, &x_read),FD_ISSET(i, &x_write),FD_ISSET(i, &x_error));*/
+			/*printf("C %d : %d,%d\n",i,FD_ISSET(i, &w_read),FD_ISSET(i, &w_write));
+			printf("A %d : %d,%d\n",i,FD_ISSET(i, &x_read),FD_ISSET(i, &x_write));*/
 			if (FD_ISSET(i, &x_read)) {
 				if (threads[i].read_func) {
 #ifdef DEBUG_CALLS
@@ -644,19 +969,6 @@ void select_loop(void (*init)(void))
 				}
 				k = 1;
 			}
-			if (FD_ISSET(i, &x_error)) {
-				if (threads[i].error_func) {
-#ifdef DEBUG_CALLS
-					fprintf(stderr, "call: error %d -> %p\n", i, threads[i].error_func);
-#endif
-					pr(threads[i].error_func(threads[i].data)) continue;
-#ifdef DEBUG_CALLS
-					fprintf(stderr, "error done\n");
-#endif
-					CHK_BH;
-				}
-				k = 1;
-			}
 			n -= k;
 		}
 		nopr();
@@ -665,4 +977,12 @@ void select_loop(void (*init)(void))
 	fprintf(stderr, "exit loop\n");
 #endif
 	nopr();
+}
+
+void terminate_select(void)
+{
+#ifdef USE_LIBEVENT
+	terminate_libevent();
+#endif
+	mem_free(threads);
 }

@@ -257,7 +257,7 @@ void *debug_mem_alloc(unsigned char *file, int line, size_t size, int mayfail)
 	if (!size) return DUMMY;
 	if (size > MAXINT) {
 		if (mayfail) return NULL;
-		overalloc();
+		overalloc_at(file, line);
 	}
 	size += L_D_S;
 	retry:
@@ -305,7 +305,7 @@ void *debug_mem_calloc(unsigned char *file, int line, size_t size, int mayfail)
 	if (!size) return DUMMY;
 	if (size > MAXINT) {
 		if (mayfail) return NULL;
-		overalloc();
+		overalloc_at(file, line);
 	}
 	size += L_D_S;
 	retry:
@@ -401,7 +401,7 @@ void *debug_mem_realloc(unsigned char *file, int line, void *p, size_t size, int
 	}
 	if (size > MAXINT) {
 		if (mayfail) return NULL;
-		overalloc();
+		overalloc_at(file, line);
 	}
 #ifdef LEAK_DEBUG
 	p = (unsigned char *)p - L_D_S;

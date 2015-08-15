@@ -318,7 +318,7 @@ int get_input_handle(void)
 		vms_fatal_exit("pthread_mutex_lock failed: %d", ret);
 	lib$disable_ctrl(&disable_ctrl_mask, &old_ctrl_mask);
 	vms_thread_high_priority = 1;
-	input_handle = start_thread(vms_input_thread, NULL, 0);
+	input_handle = start_thread(vms_input_thread, NULL, 0, 0);
 	if (input_handle == -1)
 		vms_fatal_exit("unable to start keyboard thread");
 	vms_thread_high_priority = 0;
@@ -352,7 +352,7 @@ int vms_x11_fd(int ef)
 		return x11_pipe;
 	}
 	x11_ef = ef;
-	x11_pipe = start_thread(vms_x11_thread, NULL, 0);
+	x11_pipe = start_thread(vms_x11_thread, NULL, 0, 0);
 	if (x11_pipe == -1)
 		vms_fatal_exit("unable to start Xwindow event thread");
 	set_nonblock(x11_pipe);
@@ -377,10 +377,10 @@ static int vms_socketpair(int *fd)
 	struct sockaddr_in sa1, sa2;
 	int retry_count = 0;
 	again:
-	EINTRLOOP(s1, socket(PF_INET, SOCK_STREAM, IPPROTO_TCP));
+	s1 = c_socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s1 < 0)
 		goto err0;
-	EINTRLOOP(s2, socket(PF_INET, SOCK_STREAM, IPPROTO_TCP));
+	s2 = c_socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (s2 < 0)
 		goto err1;
 	memset(&sa1, 0, sizeof(sa1));
@@ -405,7 +405,7 @@ static int vms_socketpair(int *fd)
 	if (rs)
 		goto err2;
 	l = sizeof(sa2);
-	EINTRLOOP(s3, accept(s1, (struct sockaddr *)&sa2, &l));
+	s3 = c_accept(s1, (struct sockaddr *)&sa2, &l);
 	if (s3 < 0)
 		goto err2;
 	if (sa1.sin_addr.s_addr != sa2.sin_addr.s_addr ||
@@ -1045,7 +1045,7 @@ void init_os(void)
 		add_to_thread_set(select_thread_signal[0], &select_set_read);
 		select_set_max = select_thread_signal[0] + 1;
 		vms_thread_high_priority = -1;
-		ret = start_thread(vms_select_thread, NULL, 0);
+		ret = start_thread(vms_select_thread, NULL, 0, 0);
 		if (ret == -1)
 			vms_fatal_exit("unable to start select thread");
 		vms_thread_high_priority = 0;

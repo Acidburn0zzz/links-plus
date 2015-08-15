@@ -5,6 +5,9 @@
 #undef VERSION
 
 /* */
+#undef HAVE_OPENMP
+
+/* */
 #undef HAVE_TYPEOF
 
 /* */
@@ -63,6 +66,9 @@
 
 /* */
 #undef HAVE_STRCSPN
+
+/* */
+#undef HAVE_STRSPN
 
 /* */
 #undef HAVE_STRSTR
@@ -192,6 +198,9 @@
 
 /* Tiff by Brain */
 #undef HAVE_TIFF
+
+/* SVG */
+#undef HAVE_SVG
 
 /* Gpm_Event has wdx and wdy */
 #undef HAVE_WDX_WDY

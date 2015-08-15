@@ -14,7 +14,7 @@ for i in $languages; do
 	echo
 	echo 'static const struct translation translation_'$i' [] = {'
 	echo '  { 0, NULL },'
-	cat $i.lng | eval "$mangle_unprintable_command" | sed 's/^/  {/' | sed 's/,[ 	]*$/ },/'
+	cat $i.lng | eval "$mangle_unprintable_command" | gsed 's/^/  {/' | gsed 's/,[ 	]*$/ },/'
 	echo '  { 0, NULL }'
 	echo '};'
 	n=`expr $n + 1`
@@ -32,7 +32,7 @@ echo
 	echo
 	echo '#define N_LANGUAGES '$n
 	echo
-	cat english.lng | grep '^T_' | (cat; echo T__N_TEXTS) | sed 's/,.*//' | cat -n | sed 's/^\([^T	]*\)	*\(.*\)$/#define \2 \1/'
+	cat english.lng | grep '^T_' | (cat; echo T__N_TEXTS) | gsed 's/,.*//' | cat -n | gsed 's/^\([^T	]*\)	*\(.*\)$/#define \2 \1/'
 ) | sed 's///g' > language.h
 ) | sed 's///g' > ../language.inc
 if cmp -s ../language.h language.h; then

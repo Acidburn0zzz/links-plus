@@ -1323,7 +1323,7 @@ static void list_edit_toggle(struct dialog_data *dlg, struct list_description *l
 	draw_to_window(dlg->win,redraw_list_line,&rd);	/* set cursor */
 }
 
-static int list_event_handler(struct dialog_data *dlg, struct event *ev)
+static int list_event_handler(struct dialog_data *dlg, struct links_event *ev)
 {
 	struct list_description *ld=(struct list_description*)(dlg->dlg->udata2);
 	static struct redraw_data rd;

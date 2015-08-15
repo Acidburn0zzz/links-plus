@@ -10,11 +10,40 @@
 
 #ifdef G
 
+#include "links.h"
+
 #ifdef HAVE_MATH_H
 #include <math.h>
 #endif
 
-#include "links.h"
+struct gif_decoder{
+	unsigned char *color_map; /* NULL if no color map, otherwise a block of 768 bytes, red, green, blue,
+				     in sRGB, describing color slots 0...255. */
+	int state; /* State of the automatus finitus recognizing the GIF
+		    * format.  0 is initial. */
+	/* Image width, height, bits per pixel, bytes per line, number of bit planes */
+	int im_width;
+	int im_height;
+	int im_bpp; /* Bits per pixel (in codestream) */
+	int code_size;
+	int initial_code_size;
+	int remains; /* Used to skip unwanted blocks in raster data */
+	struct gif_table_entry table[4096]; /* NULL when not present */
+	unsigned char *actual_line; /* Points to actual line in goi->buffer */
+	unsigned char tbuf[16]; /* For remembering headers and similar things. */
+	int tlen; /* 0 in the beginning . tbuf length */
+	int xoff, yoff;
+	int interl_dist;
+	int bits_read; /* How many bits are already read from the symbol
+			* Currently being read */
+	int last_code; /* This is somehow used in the decompression algorithm */
+	int read_code;
+	int CC;
+	int EOI;
+	int table_pos;
+	int first_code;
+	int transparent;
+};
 
 /****************************** Functions *************************************/
 

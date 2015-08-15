@@ -563,7 +563,9 @@ static struct table *parse_table(unsigned char *html, unsigned char *eof, unsign
 		cell->tag = a;
 	if ((a = get_attr_val(t_attr, cast_uchar "class"))) {
 		if (!strncmp(cast_const_char a, "blob-code", 9) ||	/* github hack */
-		    !strcmp(cast_const_char a, "changelog")) {
+		    !strcmp(cast_const_char a, "changelog") ||
+		    !strcmp(cast_const_char a, "vc_file_line_text") || /* https://gcc.gnu.org/viewcvs/gcc/trunk/gcc/opts.c?view=markup */
+		    0) {
 			cell->align = !par_format.implicit_pre_wrap ? AL_NO : AL_NO_BREAKABLE;
 		}
 		mem_free(a);

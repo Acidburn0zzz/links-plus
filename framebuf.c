@@ -8,7 +8,6 @@
 
 #ifdef GRDRV_FB
 
-#define USE_GPM_DX
 /*#define USE_FB_ACCEL*/
 /*#define USE_FB_ACCEL_FILLRECT*/
 
@@ -93,13 +92,6 @@ struct fb_fillrect {
 
 static int TTY = 0;
 
-#ifndef USE_GPM_DX
-static int fb_txt_xsize, fb_txt_ysize;
-static struct winsize fb_old_ws;
-static struct winsize fb_new_ws;
-static int fb_old_ws_v;
-static int fb_msetsize;
-#endif
 static int fb_hgpm;
 
 static int fb_console;
@@ -301,7 +293,7 @@ static void redraw_mouse(void);
 
 static void fb_mouse_move(int dx, int dy)
 {
-	struct event ev;
+	struct links_event ev;
 	mouse_x += dx;
 	mouse_y += dy;
 	ev.ev = EV_MOUSE;
@@ -323,8 +315,8 @@ static void fb_mouse_move(int dx, int dy)
 
 static void fb_key_in(void *p, unsigned char *ev_, int size)
 {
-	struct event *ev = (struct event *)(void *)ev_;
-	if (size != sizeof(struct event)) return;
+	struct links_event *ev = (struct links_event *)(void *)ev_;
+	if (size != sizeof(struct links_event)) return;
 	if (ev->ev == EV_ABORT) terminate_loop = 1;
 	if (ev->ev != EV_KBD) return;
 	if ((ev->y & KBD_ALT) && ev->x >= '0' && ev->x <= '9') {
@@ -947,40 +939,11 @@ static void fb_ctrl_c(struct itrm *i)
 	kbd_ctrl_c();
 }
 
-#ifndef USE_GPM_DX
-static void fb_mouse_setsize(void)
-{
-	struct vt_stat vs;
-	int rs;
-	EINTRLOOP(rs, ioctl(0, VT_GETSTATE, &vs));
-	if (!rs) {
-		fd_set zero;
-		struct timeval tv;
-		FD_ZERO(&zero);
-		memset(&tv, 0, sizeof tv);
-		EINTRLOOP(rs, ioctl(0, VT_ACTIVATE, vs.v_active > 1 ? 1 : 2));
-		tv.tv_sec = 0;
-		tv.tv_usec = 100000;
-		EINTRLOOP(rs, select(0, &zero, &zero, &zero, &tv));
-		tv.tv_sec = 0;
-		tv.tv_usec = 100000;
-		EINTRLOOP(rs, select(0, &zero, &zero, &zero, &tv));
-		tv.tv_sec = 0;
-		tv.tv_usec = 100000;
-		EINTRLOOP(rs, select(0, &zero, &zero, &zero, &tv));
-		EINTRLOOP(rs, ioctl(0, VT_ACTIVATE, vs.v_active));
-	}
-}
-#endif
-
 static void unhandle_fb_mouse(void);
 
 static void fb_gpm_in(void *nic)
 {
-#ifndef USE_GPM_DX
-	static int lx = -1, ly = -1;
-#endif
-	struct event ev;
+	struct links_event ev;
 	Gpm_Event gev;
 	again:
 	if (Gpm_GetEvent(&gev) <= 0) {
@@ -988,13 +951,6 @@ static void fb_gpm_in(void *nic)
 		return;
 	}
 	/*fprintf(stderr, "%x %x %d %d %d %d\n", gev.type, gev.buttons, gev.dx, gev.dy, gev.wdx, gev.wdy);*/
-#ifndef USE_GPM_DX
-	if (gev.x != lx || gev.y != ly) {
-		mouse_x = (gev.x - 1) * fb_xsize / fb_txt_xsize + fb_xsize / fb_txt_xsize / 2 - 1;
-		mouse_y = (gev.y - 1) * fb_ysize / fb_txt_ysize + fb_ysize / fb_txt_ysize / 2 - 1;
-		lx = gev.x, ly = gev.y;
-	}
-#else
 	if (gev.dx || gev.dy) {
 		if (!((int)gev.type & gpm_smooth)) {
 			mouse_x += gev.dx * 8;
@@ -1007,7 +963,6 @@ static void fb_gpm_in(void *nic)
 		}
 #endif
 	}
-#endif
 	ev.ev = EV_MOUSE;
 	if (mouse_x >= fb_xsize) mouse_x = fb_xsize - 1;
 	if (mouse_y >= fb_ysize) mouse_y = fb_ysize - 1;
@@ -1055,16 +1010,6 @@ static void fb_gpm_in(void *nic)
 	}
 #endif
 
-#ifndef USE_GPM_DX
-	if (fb_msetsize < 0) {
-	} else if (fb_msetsize < 10) {
-		fb_msetsize++;
-	} else if ((ev.b & BM_ACT) == B_MOVE && !(ev.b & BM_BUTT)) {
-		fb_mouse_setsize();
-		fb_msetsize = -1;
-	}
-#endif
-
 	if (((ev.b & BM_ACT) == B_MOVE && !(ev.b & BM_BUTT)) || (ev.b & BM_ACT) == B_DRAG) {
 		if (can_read(fb_hgpm)) goto again;
 	}
@@ -1078,29 +1023,7 @@ static void fb_gpm_in(void *nic)
 static int handle_fb_mouse(void)
 {
 	Gpm_Connect conn;
-#ifndef USE_GPM_DX
-	int gpm_ver = 0;
-	struct winsize ws;
-	fb_old_ws_v = 0;
-#endif
 	fb_hgpm = -1;
-#ifndef USE_GPM_DX
-	Gpm_GetLibVersion(&gpm_ver);
-	fb_msetsize = -1;
-	if (gpm_ver >= 11900) {
-		int rs;
-		EINTRLOOP(rs,ioctl(1, TIOCGWINSZ, &ws));
-		if (rs != -1) {
-			memcpy(&fb_old_ws, &ws, sizeof(struct winsize));
-			fb_old_ws_v = 1;
-			ws.ws_row *= 2;
-			EINTRLOOP(rs, ioctl(1, TIOCSWINSZ, &ws));
-			fb_msetsize = 0;
-			memcpy(&fb_new_ws, &ws, sizeof ws);
-		}
-	}
-	get_terminal_size(1, &fb_txt_xsize, &fb_txt_ysize);
-#endif
 	conn.eventMask = (unsigned short)~0U;
 	conn.defaultMask = gpm_smooth;
 	conn.minMod = 0;
@@ -1109,7 +1032,7 @@ static int handle_fb_mouse(void)
 		unhandle_fb_mouse();
 		return -1;
 	}
-	set_handlers(fb_hgpm, fb_gpm_in, (void (*)(void *))NULL, (void (*)(void *))NULL, NULL);
+	set_handlers(fb_hgpm, fb_gpm_in, (void (*)(void *))NULL, NULL);
 #ifdef SIGTSTP
 	install_signal_handler(SIGTSTP, (void (*)(void *))sig_tstp, NULL, 0);
 #endif
@@ -1125,15 +1048,7 @@ static int handle_fb_mouse(void)
 
 static void unhandle_fb_mouse(void)
 {
-	if (fb_hgpm >= 0) set_handlers(fb_hgpm, (void (*)(void *))NULL, (void (*)(void *))NULL, (void (*)(void *))NULL, NULL);
-#ifndef USE_GPM_DX
-	fb_hgpm = -1;
-	if (fb_old_ws_v) {
-		int rs;
-		EINTRLOOP(rs, ioctl(1, TIOCSWINSZ, &fb_old_ws));
-		fb_old_ws_v = 0;
-	}
-#endif
+	if (fb_hgpm >= 0) set_handlers(fb_hgpm, (void (*)(void *))NULL, (void (*)(void *))NULL, NULL);
 	Gpm_Close();
 #ifdef SIGTSTP
 	install_signal_handler(SIGTSTP, (void (*)(void *))sig_tstp, NULL, 0);
@@ -1259,7 +1174,7 @@ static unsigned char *fb_init_driver(unsigned char *param, unsigned char *ignore
 		return e;
 	}
 
-	EINTRLOOP(fb_handle, open("/dev/fb0", O_RDWR));
+	fb_handle = c_open(cast_uchar "/dev/fb0", O_RDWR | O_NOCTTY);
 	if (fb_handle==-1) {
 		fb_switch_shutdown();
 		if(fb_driver_param) { mem_free(fb_driver_param); fb_driver_param=NULL; }
@@ -1532,6 +1447,11 @@ static void fb_shutdown_driver(void)
 	if (in_gr_operation) internal("fb_shutdown_driver: in_gr_operation %d", in_gr_operation);
 }
 
+static void fb_after_fork(void)
+{
+	int rs;
+	EINTRLOOP(rs, close(fb_handle));
+}
 
 static unsigned char *fb_get_driver_param(void)
 {
@@ -1962,8 +1882,10 @@ struct graphics_driver fb_driver={
 	init_virtual_device,
 	shutdown_virtual_device,
 	fb_shutdown_driver,
-	dummy_emergency_shutdown,
+	(void (*)(void))NULL,
+	fb_after_fork,
 	fb_get_driver_param,
+	(unsigned char *(*)(void))NULL,
 	fb_get_margin,
 	fb_set_margin,
 	fb_get_empty_bitmap,

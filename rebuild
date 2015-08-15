@@ -130,7 +130,7 @@ export CFLAGS="-Wall -g -O2 -pipe -ansi -U__STRICT_ANSI__ -fno-common $CFLAGS" &
 export CXXFLAGS="$CXXFLAGS -Wall -g -O2 -pipe" &&
 ./configure --enable-graphics --enable-debuglevel=2 &&
 $make clean &&
-$make -j2 &&
+$make &&
 if [ "$1" = reconf ]; then
 	$autoheader &&
 	$automake --add-missing --include-deps --build-dir=. --srcdir-name=. --output-dir=. &&

@@ -5,8 +5,8 @@
 
 #include "links.h"
 
-static void menu_func(struct window *, struct event *, int);
-static void mainmenu_func(struct window *, struct event *, int);
+static void menu_func(struct window *, struct links_event *, int);
+static void mainmenu_func(struct window *, struct links_event *, int);
 
 struct memory_list *getml(void *p, ...)
 {
@@ -100,8 +100,6 @@ struct style *bfu_style_wb_mono, *bfu_style_wb_mono_u;
 
 long bfu_fg_color, bfu_bg_color;
 
-static int G_DIALOG_FIELD_WIDTH;
-
 void init_bfu(void)
 {
 	if (!F) return;
@@ -114,8 +112,9 @@ void init_bfu(void)
 	bfu_style_bw_mono = g_get_style(G_BFU_FG_COLOR, G_BFU_BG_COLOR, G_BFU_FONT_SIZE, cast_uchar "monospaced", 0);
 	bfu_style_wb_mono = g_get_style(G_BFU_BG_COLOR, G_BFU_FG_COLOR, G_BFU_FONT_SIZE, cast_uchar "monospaced", 0);
 	bfu_style_wb_mono_u = g_get_style(G_BFU_BG_COLOR, G_BFU_FG_COLOR, G_BFU_FONT_SIZE, cast_uchar "monospaced", FF_UNDERLINE);
-	G_DIALOG_FIELD_WIDTH = g_char_width(bfu_style_wb_mono, ' ');
 }
+
+#define G_DIALOG_FIELD_WIDTH g_char_width(bfu_style_wb_mono, ' ')
 
 void shutdown_bfu(void)
 {
@@ -465,7 +464,7 @@ static void display_menu_gfx(struct terminal *term, struct menu *menu)
 
 #endif
 
-static void menu_func(struct window *win, struct event *ev, int fwd)
+static void menu_func(struct window *win, struct links_event *ev, int fwd)
 {
 	int s = 0;
 	int xp, yp;
@@ -630,9 +629,9 @@ void do_mainmenu(struct terminal *term, struct menu_item *items, void *data, int
 	if (sel != -1) {
 		/* volatile is workaround for some weird bug in icc or linker,
 		   it results in unaligned sse load */
-		volatile struct event ev = {EV_KBD, KBD_ENTER, 0, 0};
+		volatile struct links_event ev = {EV_KBD, KBD_ENTER, 0, 0};
 		struct window *win = term->windows.next;
-		win->handler(win, (struct event *)&ev, 0);
+		win->handler(win, (struct links_event *)&ev, 0);
 	}
 }
 
@@ -710,7 +709,7 @@ static void select_mainmenu(struct terminal *term, struct mainmenu *menu)
 	it->func(term, it->data, menu->data);
 }
 
-static void mainmenu_func(struct window *win, struct event *ev, int fwd)
+static void mainmenu_func(struct window *win, struct links_event *ev, int fwd)
 {
 	int s = 0;
 	int in_menu;
@@ -1066,7 +1065,7 @@ static void dlg_set_history(struct dialog_item_data *di)
 	di->vpos = 0;
 }
 
-static int dlg_mouse(struct dialog_data *dlg, struct dialog_item_data *di, struct event *ev)
+static int dlg_mouse(struct dialog_data *dlg, struct dialog_item_data *di, struct links_event *ev)
 {
 	switch (di->item->type) {
 		case D_BUTTON:
@@ -1153,7 +1152,7 @@ static void redraw_dialog(struct terminal *term, struct dialog_data *dlg)
 
 static void tab_compl(struct terminal *term, unsigned char *item, struct window *win)
 {
-	struct event ev = {EV_REDRAW, 0, 0, 0};
+	struct links_event ev = {EV_REDRAW, 0, 0, 0};
 	struct dialog_item_data *di = &((struct dialog_data*)win->data)->items[((struct dialog_data*)win->data)->selected];
 	int l = (int)strlen(cast_const_char item);
 	if (l >= di->item->dlen || l < 0) l = di->item->dlen - 1;
@@ -1199,7 +1198,7 @@ static void do_tab_compl(struct terminal *term, struct list_head *history, struc
 	}
 }
 
-void dialog_func(struct window *win, struct event *ev, int fwd)
+void dialog_func(struct window *win, struct links_event *ev, int fwd)
 {
 	int i;
 	struct terminal *term = win->term;
@@ -1480,7 +1479,7 @@ int check_float(struct dialog_data *dlg, struct dialog_item_data *di)
 {
 	unsigned char *end;
 	double d = strtod(cast_const_char di->cdata, (char **)(void *)&end);
-	if (!*di->cdata || *end) {
+	if (!*di->cdata || *end || strspn(cast_const_char di->cdata, "0123456789.") != strlen(cast_const_char di->cdata) || *di->cdata == (unsigned char)'.') {
 		msg_box(dlg->win->term, NULL, TEXT_(T_BAD_NUMBER), AL_CENTER, TEXT_(T_NUMBER_EXPECTED), NULL, 1, TEXT_(T_CANCEL), NULL, B_ENTER | B_ESC);
 		return 1;
 	}
@@ -1992,8 +1991,8 @@ void max_group_width(struct terminal *term, unsigned char * const *texts, struct
 	while (n--) {
 		int wx = item->item->type == D_CHECKBOX ? gf_val(4, txtlen(term, cast_uchar(G_DIALOG_CHECKBOX_L G_DIALOG_CHECKBOX_X G_DIALOG_CHECKBOX_R)) + G_DIALOG_CHECKBOX_SPACE) :
 			item->item->type == D_BUTTON ? txtlen(term, _(item->item->text, term)) + (gf_val(4, txtlen(term, cast_uchar(G_DIALOG_BUTTON_L G_DIALOG_BUTTON_R)))) :
-			gf_val(item->item->dlen + 1, (item->item->dlen + 1) * G_DIALOG_FIELD_WIDTH);
-		wx += txtlen(term, _(texts[0], term));
+			gf_val(item->item->dlen, item->item->dlen * G_DIALOG_FIELD_WIDTH);
+		wx += txtlen(term, _(texts[0], term)) + gf_val(1, G_DIALOG_GROUP_TEXT_SPACE);
 		if (n) gf_val(wx++, wx += G_DIALOG_GROUP_SPACE);
 		ww += wx;
 		texts++;

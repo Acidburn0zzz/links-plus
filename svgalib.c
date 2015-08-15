@@ -44,7 +44,7 @@ static int flags = 0; /* OR-ed 1: running in background
 		*       2: vga_block()-ed
 		*/
 #ifndef __SPAD__
-static int svgalib_timer_id;
+static struct timer *svgalib_timer_id;
 #endif
 
 /*---------------------------LIMITATIONS---------------------------------------*/
@@ -1706,8 +1706,8 @@ void dump_mode_info_into_file(vga_modeinfo* i)
 
 static void svgalib_key_in(void *p, unsigned char *ev_, int size)
 {
-	struct event *ev = (struct event *)(void *)ev_;
-	if (size != sizeof(struct event)) return;
+	struct links_event *ev = (struct links_event *)(void *)ev_;
+	if (size != sizeof(struct links_event)) return;
 	if (ev->ev == EV_ABORT) terminate_loop = 1;
 	if (ev->ev != EV_KBD) return;
 	if ((ev->y & KBD_ALT) && ev->x >= '0' && ev->x <= '9') {
@@ -2523,8 +2523,10 @@ struct graphics_driver svga_driver={
 	init_virtual_device,
 	shutdown_virtual_device,
 	svga_shutdown_driver,
-	dummy_emergency_shutdown,
+	NULL,
+	NULL,
 	svga_get_driver_param,
+	NULL,
 	NULL,
 	NULL,
 	svga_get_empty_bitmap,
@@ -2550,7 +2552,7 @@ struct graphics_driver svga_driver={
 	NULL, /* get_clipboard_text */
 	0,				/* depth */
 	0, 0,				/* size */
-	0,				/* flags */
+	GD_NO_LIBEVENT,			/* flags */
 	0,				/* codepage */
 	NULL,				/* shell */
 };

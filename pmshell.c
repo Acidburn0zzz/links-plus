@@ -128,7 +128,7 @@ static inline void ReleaseCapture(void)
 
 #endif
 
-#ifdef WIN32
+#ifdef WIN
 
 /*#define UNICODE*/
 /*#define NO_STRICT*/
@@ -246,7 +246,7 @@ static inline void pm_event_signal(void)
 #define PM_ALLOC_ZERO		1
 #define PM_ALLOC_MAYFAIL	2
 
-#if defined(WIN32) && !defined(USE_WIN32_HEAP)
+#if defined(WIN) && !defined(USE_WIN32_HEAP)
 
 /* space allocated with malloc may span multiple mapped areas
    and SetDIBitsToDevice doesn't like it. So use HeapAlloc/HeapFree */
@@ -319,7 +319,7 @@ struct pm_window {
 	HPS ps;
 	HWND h;
 #endif
-#ifdef WIN32
+#ifdef WIN
 	HDC dc;
 	HPEN pen_orig;
 	HPEN pen_cache;
@@ -473,7 +473,7 @@ static int win_x(struct pm_window *win)
 #ifdef OS2
 	int x = (short)(win->lastpos & 0xffff);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	int x = GET_X_LPARAM(win->lastpos);
 #endif
 	if (x < 0) x = -1;
@@ -486,7 +486,7 @@ static int win_y(struct pm_window *win)
 #ifdef OS2
 	int y = (short)(win->y - (win->lastpos >> 16));
 #endif
-#ifdef WIN32
+#ifdef WIN
 	int y = GET_Y_LPARAM(win->lastpos);
 #endif
 	if (y < 0) y = -1;
@@ -500,7 +500,7 @@ static void pm_user_msg(unsigned long msg, void *mp1, void *mp2);
 static MRESULT EXPENTRY pm_window_proc(HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2)
 #define mouse_pos	((unsigned)mp1)
 #endif
-#ifdef WIN32
+#ifdef WIN
 static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM mp2)
 #define mouse_pos	((unsigned long)mp2)
 #endif
@@ -535,7 +535,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 			debug_call(("T: WM_PAINT: WinValidateRect"));
 			WinValidateRect(hwnd, &ur, FALSE);
 #endif
-#ifdef WIN32
+#ifdef WIN
 			GetUpdateRect(hwnd, &ur, FALSE);
 			if (!GetClientRect(hwnd, &wr)) {
 				memset(&wr, 0, sizeof wr);
@@ -558,7 +558,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 				debug_call(("T: WM_PAINT: break"));
 				break;
 			}
-#ifdef WIN32
+#ifdef WIN
 			ur.yTop = win->y - ur.yTop;
 			ur.yBottom = win->y - ur.yBottom;
 #endif
@@ -619,7 +619,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 			return 0;
 		case WM_CHAR:
 			debug_call(("T: WM_CHAR"));
-#ifdef WIN32
+#ifdef WIN
 		case WM_SYSCHAR:
 		case WM_KEYDOWN:
 		case WM_SYSKEYDOWN:
@@ -678,7 +678,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 				}
 			}
 #endif
-#ifdef WIN32
+#ifdef WIN
 			k_fsflags = (long)mp2;
 			flags = 0;
 			if (k_fsflags & (1 << 29))
@@ -823,7 +823,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 			}
 			debug_call(("T: BUTTON_UP: break"));
 			break;
-#ifdef WIN32
+#ifdef WIN
 		case WM_XBUTTONDOWN:
 		case WM_XBUTTONDBLCLK:
 			if (HIWORD(mp1) == XBUTTON1)
@@ -881,7 +881,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 			pm_unlock();
 			debug_call(("T: WM_MOUSEMOVE: break"));
 			break;
-#ifdef WIN32
+#ifdef WIN
 		case WM_CAPTURECHANGED:
 			pm_lock();
 			if (!(win = pm_lookup_window(hwnd))) { pm_unlock(); break; }
@@ -931,7 +931,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 			debug_call(("T: VM_HSCROLL: break"));
 			break;
 #endif
-#ifdef WIN32
+#ifdef WIN
 		case WM_MOUSEWHEEL:
 			flags = HIWORD(mp1);
 			if (!flags) break;
@@ -948,7 +948,7 @@ static LRESULT CALLBACK pm_window_proc(HWND hwnd, UINT msg, WPARAM mp1, LPARAM m
 	debug_call(("T: WinDefWindowProc returned %p", ret));
 	return ret;
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (!unicode_supported)
 		return DefWindowProcA(hwnd, msg, mp1, mp2);
 	else
@@ -983,7 +983,7 @@ static void pm_user_msg(unsigned long msg, void *mp1, void *mp2)
 					error("WinSetWindowPos failed");
 			}
 #endif
-#ifdef WIN32
+#ifdef WIN
 			if (unicode_supported) {
 				win->hc = CreateWindowExW(WS_EX_APPWINDOW | WS_EX_LEFT, (void *)(unsigned long)window_class_atom, L"Links", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, NULL, NULL, module_handle, NULL);
 			} else {
@@ -998,6 +998,8 @@ static void pm_user_msg(unsigned long msg, void *mp1, void *mp2)
 					if (icon_small != NULL) SendMessageA(win->hc, WM_SETICON, ICON_SMALL, (LPARAM)icon_small);
 				}
 				ShowWindow(win->hc, SW_SHOW);
+				/*SetWindowPos(win->hc, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);*/
+				SetForegroundWindow(win->hc);
 			}
 #endif
 			debug_call(("T: pm_lock"));
@@ -1013,7 +1015,7 @@ static void pm_user_msg(unsigned long msg, void *mp1, void *mp2)
 			if (!WinDestroyWindow(win->h))
 				fatal_exit("WinDestroyWindow failed");
 #endif
-#ifdef WIN32
+#ifdef WIN
 			if (!DestroyWindow(win->hc))
 				fatal_exit("DestroyWindow failed");
 #endif
@@ -1029,7 +1031,7 @@ static void pm_user_msg(unsigned long msg, void *mp1, void *mp2)
 			debug_call(("T: WinSetWindowText"));
 			WinSetWindowText(win->h, mp2);
 #endif
-#ifdef WIN32
+#ifdef WIN
 			if (unicode_supported && unicode_title_supported)
 				SetWindowTextW(win->hc, mp2);
 			else
@@ -1058,7 +1060,7 @@ static void pm_send_msg(int msg, void *param, void *param2)
 	}
 	debug_call(("M: WinPostMsg succeeded"));
 #endif
-#ifdef WIN32
+#ifdef WIN
 	BOOL r;
 	if (!GdiFlush())
 		{/*error("GdiFlush failed: %u", (unsigned)GetLastError());*/}
@@ -1078,7 +1080,7 @@ static void pm_send_msg(int msg, void *param, void *param2)
 #endif
 	pm_event_wait();
 	debug_call(("M: pm_event_wait succeeded"));
-#ifdef WIN32
+#ifdef WIN
 	if (msg == MSG_SHUTDOWN_THREAD) {
 		if (pthread_join(pthread_handle, NULL))
 			fatal_exit("pthread_join failed");
@@ -1092,7 +1094,7 @@ static void pm_dispatcher(void *p)
 	QMSG msg;
 	HWND hwnd_hidden_h;
 #endif
-#ifdef WIN32
+#ifdef WIN
 	MSG msg;
 	HCURSOR hcursor;
 	WNDCLASSEXW class_w;
@@ -1140,7 +1142,7 @@ static void pm_dispatcher(void *p)
 	}
 	GpiCreateLogColorTable(hps_hidden, 0, LCOLF_RGB, 0, 0, NULL);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	pm_cp = get_windows_cp(0);
 
 	hcursor = LoadCursorA(0, (void *)IDC_ARROW);
@@ -1208,7 +1210,7 @@ static void pm_dispatcher(void *p)
 		debug_call(("T: WinGetMsg: %lx, %lx, %p, %p, %lx, %lx.%lx, %lx", msg.hwnd, msg.msg, msg.mp1, msg.mp2, msg.time, msg.ptl.x, msg.ptl.y, msg.reserved));
 		WinDispatchMsg(hab_disp, &msg);
 #endif
-#ifdef WIN32
+#ifdef WIN
 		if (!unicode_supported)
 			GetMessageA(&msg, NULL, 0, 0);
 		else
@@ -1238,7 +1240,7 @@ static void pm_dispatcher(void *p)
 			error("WinTerminate failed");
 	os2_fail0:
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (!DestroyWindow(hwnd_hidden))
 		error("DestroyWindow failed: %u", (unsigned)GetLastError());
 	win32_fail:
@@ -1247,7 +1249,7 @@ static void pm_dispatcher(void *p)
 	return;
 }
 
-#ifdef WIN32
+#ifdef WIN
 static void *pm_dispatcher_win32(void *p)
 {
 	pm_dispatcher(NULL);
@@ -1258,7 +1260,7 @@ static void *pm_dispatcher_win32(void *p)
 static void pm_pipe_error(void *p)
 {
 	error("exception on pm pipe");
-	set_handlers(pm_pipe[0], NULL, NULL, NULL, NULL);
+	set_handlers(pm_pipe[0], NULL, NULL, NULL);
 }
 
 static void pm_handler(void *p)
@@ -1327,7 +1329,7 @@ static void pm_handler(void *p)
 
 #endif
 
-#ifdef WIN32
+#ifdef WIN
 
 static unsigned char flush_in_progress = 0;
 
@@ -1357,22 +1359,28 @@ static unsigned char *pm_get_driver_param(void)
 	return NULL;
 }
 
+static unsigned char *pm_get_af_unix_name(void)
+{
+	return cast_uchar "";
+}
+
 #ifdef PM_SPAWN_SUBPROC
 
 static int pm_sin, pm_sout, pm_serr, pm_ip[2], pm_op[2], pm_ep[2];
 static int pm_cons_ok = 0;
 
-static void pm_setup_console(void)
+static void pm_setup_console(int undo)
 {
 	int rs;
+	if (pm_cons_ok != undo) return;
 	if (pm_cons_ok) goto fail9;
-	set_bin(1);
-	set_bin(2);
-	EINTRLOOP(pm_sin, dup(0));
+	setmode(1, O_BINARY);
+	setmode(2, O_BINARY);
+	pm_sin = c_dup(0);
 	if (pm_sin < 0) goto fail;
-	EINTRLOOP(pm_sout, dup(1));
+	pm_sout = c_dup(1);
 	if (pm_sout < 0) goto fail1;
-	EINTRLOOP(pm_serr, dup(2));
+	pm_serr = c_dup(2);
 	if (pm_serr < 0) goto fail2;
 	if (c_pipe(pm_ip)) goto fail3;
 	if (c_pipe(pm_op)) goto fail4;
@@ -1483,16 +1491,16 @@ static unsigned char *pm_spawn_subproc(void)
 	arg[g_argc] = NULL;
 	pm_child_pid = -1;
 	install_signal_handler(SIGCHLD, pm_sigcld, NULL, 1);
-	pm_setup_console();
+	pm_setup_console(0);
 	pm_child_pid = spawnvp(P_PM, path_to_exe, (char **)arg);
 	mem_free(arg);
 	if (pm_child_pid < 0) {
 		set_sigcld();
-		pm_setup_console();
+		pm_setup_console(1);
 		return cast_uchar "Unable to spawn subprocess.\n";
 	}
 	pm_do_console();
-	pm_setup_console();
+	pm_setup_console(1);
 	while (1)
 		EINTRLOOP(rs, select(1, NULL, NULL, NULL, NULL));
 
@@ -1524,7 +1532,7 @@ static unsigned char *pm_init_driver(unsigned char *param, unsigned char *displa
 		goto r0;
 	}
 #endif
-#ifdef WIN32
+#ifdef WIN
 	module_handle = GetModuleHandleA(NULL);
 	if (!module_handle) {
 		s = cast_uchar "Unable to get module handle.\n";
@@ -1552,7 +1560,7 @@ static unsigned char *pm_init_driver(unsigned char *param, unsigned char *displa
 		goto r4;
 	}
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (pthread_create(&pthread_handle, NULL, pm_dispatcher_win32, NULL)) {
 		s = cast_uchar "Could not start thread.\n";
 		goto r4;
@@ -1588,7 +1596,7 @@ static unsigned char *pm_init_driver(unsigned char *param, unsigned char *displa
 
 	icon = WinLoadPointer(HWND_DESKTOP, 0, 1);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	{
 		int bpp;
 
@@ -1615,7 +1623,7 @@ static unsigned char *pm_init_driver(unsigned char *param, unsigned char *displa
 	icon_small = LoadImage(module_handle, MAKEINTRESOURCE(1), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
 #endif
 	icon_set = 0;
-	set_handlers(pm_pipe[0], pm_handler, NULL, pm_pipe_error, NULL);
+	set_handlers(pm_pipe[0], pm_handler, NULL, NULL);
 
 	return NULL;
 
@@ -1657,7 +1665,7 @@ static void pm_shutdown_driver(void)
 	if (DevCloseDC(hdc_mem) == DEV_ERROR)
 		error("DevCloseDC failed");
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (icon_small != NULL)
 		if (!DestroyIcon(icon_small))
 			error("DestroIcon failed: %u", (unsigned)GetLastError());
@@ -1669,8 +1677,7 @@ static void pm_shutdown_driver(void)
 #endif
 	pm_free(pm_bitmapinfo);
 	pm_lock_close();
-	set_handlers(pm_pipe[0], NULL, NULL, NULL, NULL);
-	EINTRLOOP(rs, close(pm_pipe[0]));
+	close_socket(&pm_pipe[0]);
 	EINTRLOOP(rs, close(pm_pipe[1]));
 	pm_event_close();
 	PM_UNFLUSH();
@@ -1724,7 +1731,7 @@ static HPOINTER pmshell_create_icon(void)
 
 #endif
 
-#ifdef WIN32
+#ifdef WIN
 
 static HICON win32_create_icon(int x, int y)
 {
@@ -1842,7 +1849,7 @@ static struct graphics_device *pm_init_device(void)
 #ifdef OS2
 		if (icon == NULLHANDLE) icon = pmshell_create_icon();
 #endif
-#ifdef WIN32
+#ifdef WIN
 		if (!icon_big) icon_big = win32_create_icon(32, 32);
 		if (!icon_small) icon_small = win32_create_icon(16, 16);
 #endif
@@ -1867,7 +1874,7 @@ static struct graphics_device *pm_init_device(void)
 		goto r2;
 	}
 #endif
-#ifdef WIN32
+#ifdef WIN
 	win->pen_orig = NULL;
 	win->pen_cache = NULL;
 	win->pen_cache_color = -1;
@@ -1889,7 +1896,7 @@ static struct graphics_device *pm_init_device(void)
 		memset(&wr, 0, sizeof wr);
 	}
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (!GetClientRect(win->hc, &wr)) {
 		memset(&wr, 0, sizeof wr);
 	}
@@ -1927,7 +1934,7 @@ static void pm_shutdown_device(struct graphics_device *dev)
 	if (!WinReleasePS(win->ps))
 		error("WinReleasePS failed");
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (win->pen_orig)
 		if (!SelectObject(win->dc, win->pen_orig))
 			error("SelectObject failed for original pen %u", (unsigned)GetLastError());
@@ -1938,7 +1945,7 @@ static void pm_shutdown_device(struct graphics_device *dev)
 #endif
 	debug_call(("M: pm_shutdown_device: pm_send_msg"));
 	pm_send_msg(MSG_DELETE_WINDOW, win, NULL);
-#ifdef WIN32
+#ifdef WIN
 	if (win->pen_cache)
 		if (!DeleteObject(win->pen_cache))
 			error("DeleteObject failed for pen cache %u", (unsigned)GetLastError());
@@ -1968,7 +1975,7 @@ static void pm_set_window_title(struct graphics_device *dev, unsigned char *titl
 {
 	unsigned char *text;
 	debug_call(("M: pm_set_window_title: start"));
-#if defined(WIN32)
+#ifdef WIN
 	if (unicode_supported && unicode_title_supported) {
 		int l = 0;
 		text = init_str();
@@ -2187,7 +2194,7 @@ static void pm_draw_bitmap(struct graphics_device *dev, struct bitmap *bmp, int 
 		}
 	}
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (!bmp->data)
 		return;
 	pm_bitmapinfo->bmiHeader.biWidth = bmp->x;
@@ -2203,7 +2210,7 @@ static long pm_get_color(int rgb)
 #ifdef OS2
 	return rgb & 0xffffff;
 #endif
-#ifdef WIN32
+#ifdef WIN
 	COLORREF c, d;
 	c = ((rgb & 0xff) << 16) | (rgb & 0xff00) | ((rgb & 0xff0000) >> 16);
 	d = GetNearestColor(screen_dc, c);
@@ -2212,7 +2219,7 @@ static long pm_get_color(int rgb)
 #endif
 }
 
-#ifdef WIN32
+#ifdef WIN
 
 static int win32_select_brush(struct pm_window *win, int color)
 {
@@ -2279,7 +2286,7 @@ static void pm_fill_area(struct graphics_device *dev, int x1, int y1, int x2, in
 	r.yTop = pm_win(dev)->y - r.yTop;
 	WinFillRect(pm_win(dev)->ps, &r, color);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (win32_select_brush(pm_win(dev), color))
 		return;
 	if (!FillRect(pm_win(dev)->dc, &r, pm_win(dev)->brush_cache))
@@ -2309,7 +2316,7 @@ static void pm_draw_hline(struct graphics_device *dev, int x1, int y, int x2, lo
 	p.x = x2 - 1;
 	GpiLine(ps, &p);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (win32_select_pen(pm_win(dev), color))
 		return;
 	if (!MoveToEx(pm_win(dev)->dc, x1, y, NULL)) {
@@ -2342,7 +2349,7 @@ static void pm_draw_vline(struct graphics_device *dev, int x, int y1, int y2, lo
 	p.y = pm_win(dev)->y - y2;
 	GpiLine(ps, &p);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (win32_select_pen(pm_win(dev), color))
 		return;
 	if (!MoveToEx(pm_win(dev)->dc, x, y1, NULL)) {
@@ -2388,7 +2395,7 @@ static int pm_hscroll(struct graphics_device *dev, struct rect_set **ignore, int
 	r.yTop = pm_win(dev)->y - r.yTop;
 	WinScrollWindow(pm_win(dev)->hc, sc, 0, &r, &r, NULLHANDLE, NULL, SW_INVALIDATERGN);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (ScrollWindowEx(pm_win(dev)->hc, sc, 0, &r, &r, NULL, NULL, SW_INVALIDATE) == ERROR)
 		error("ScrollWindowEx failed %u", (unsigned)GetLastError());
 #endif
@@ -2432,7 +2439,7 @@ static int pm_vscroll(struct graphics_device *dev, struct rect_set **ignore, int
 	r.yTop = pm_win(dev)->y - r.yTop;
 	WinScrollWindow(pm_win(dev)->hc, 0, -sc, &r, &r, NULLHANDLE, NULL, SW_INVALIDATERGN);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (ScrollWindowEx(pm_win(dev)->hc, 0, sc, &r, &r, NULL, NULL, SW_INVALIDATE) == ERROR)
 		error("ScrollWindowEx failed %u", (unsigned)GetLastError());
 #endif
@@ -2447,15 +2454,17 @@ struct graphics_driver pmshell_driver = {
 #ifdef OS2
 	cast_uchar "pmshell",
 #endif
-#ifdef WIN32
+#ifdef WIN
 	cast_uchar "windows",
 #endif
 	pm_init_driver,
 	pm_init_device,
 	pm_shutdown_device,
 	pm_shutdown_driver,
-	dummy_emergency_shutdown,
+	NULL,
+	NULL,
 	pm_get_driver_param,
+	pm_get_af_unix_name,
 	NULL,
 	NULL,
 	pm_get_empty_bitmap,

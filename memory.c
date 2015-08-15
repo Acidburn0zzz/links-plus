@@ -163,7 +163,7 @@ void debug_test_free(unsigned char *file, int line)
 	retry:
 	sl = malloc(sizeof(struct debug_test_free_slot));
 	if (!sl) {
-		if (out_of_memory(NULL, 0))
+		if (out_of_memory(0, NULL, 0))
 			goto retry;
 		return;
 	}

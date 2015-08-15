@@ -13,7 +13,7 @@ links_LDADD=atheos.o
 else
 endif
 
-links_SOURCES=af_unix.c auth.c beos.c bfu.c block.c bookmark.c cache.c charsets.c compress.c connect.c cookies.c data.c default.c dip.c directfb.c dither.c dns.c dos.c drivers.c error.c file.c finger.c fn_impl.c font_inc.c framebuf.c ftp.c gif.c grx.c hpux.c html.c html_gr.c html_r.c html_tbl.c http.c https.c img.c imgcache.c jpeg.c jsint.c kbd.c language.c listedit.c lru.c mailto.c main.c memory.c menu.c objreq.c os_dep.c pmshell.c png.c sched.c select.c session.c smb.c string.c svgalib.c terminal.c tiff.c types.c url.c view.c view_gr.c vms.c x.c xbm.c beos.h bits.h cfg.h codepage.h com-defs.h config-vms.h dfb_cur.h hpux.h language.h links.h os_dep.h os_depx.h setup.h arrow.inc codepage.inc entity.inc fbcommon.inc language.inc links_ic.inc uni_7b.inc upcase.inc vpipe.inc
+links_SOURCES=af_unix.c auth.c beos.c bfu.c block.c bookmark.c cache.c charsets.c compress.c connect.c cookies.c data.c default.c dip.c directfb.c dither.c dns.c dos.c drivers.c error.c file.c finger.c fn_impl.c font_inc.c framebuf.c ftp.c gif.c grx.c hpux.c html.c html_gr.c html_r.c html_tbl.c http.c https.c img.c imgcache.c jpeg.c jsint.c kbd.c language.c listedit.c lru.c mailto.c main.c memory.c menu.c objreq.c os_dep.c pmshell.c png.c sched.c select.c session.c smb.c string.c svg.c svgalib.c terminal.c tiff.c types.c url.c view.c view_gr.c vms.c x.c xbm.c beos.h bits.h cfg.h codepage.h com-defs.h config-vms.h dfb_cur.h hpux.h language.h links.h os_dep.h os_depx.h setup.h arrow.inc codepage.inc entity.inc fbcommon.inc language.inc links_ic.inc uni_7b.inc upcase.inc vpipe.inc
 
 dist-hook:
 #remove the symlinka:
@@ -25,8 +25,8 @@ dist-hook:
 
 CXXFLAGS=@CXXFLAGS@
 
-atheos.o: atheos.cpp
-	$(CXX) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c atheos.cpp
+atheos.o: $(srcdir)/atheos.cpp
+	$(CXX) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CXXFLAGS) $(CXXFLAGS) -c $(srcdir)/atheos.cpp
 
 datadir = $(prefix)/@DATADIRNAME@
 LIBS = @LIBS@

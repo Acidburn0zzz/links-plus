@@ -272,8 +272,8 @@ void smb_func(struct connection *c)
 	c->sock2 = pe[0];
 	EINTRLOOP(rs, close(po[1]));
 	EINTRLOOP(rs, close(pe[1]));
-	set_handlers(po[0], (void (*)(void *))smb_got_data, NULL, NULL, c);
-	set_handlers(pe[0], (void (*)(void *))smb_got_text, NULL, NULL, c);
+	set_handlers(po[0], (void (*)(void *))smb_got_data, NULL, c);
+	set_handlers(pe[0], (void (*)(void *))smb_got_text, NULL, c);
 	setcstate(c, S_CONN);
 }
 
@@ -335,7 +335,7 @@ static void smb_read_text(struct connection *c, int sock)
 	if (r == 0) {
 		if (!si->cl) {
 			si->cl = 1;
-			set_handlers(sock, NULL, NULL, NULL, NULL);
+			set_handlers(sock, NULL, NULL, NULL);
 			return;
 		}
 		end_smb_connection(c);
@@ -401,7 +401,7 @@ static void smb_got_data(struct connection *c)
 		mem_free(buffer);
 		if (!si->cl) {
 			si->cl = 1;
-			set_handlers(c->sock1, NULL, NULL, NULL, NULL);
+			set_handlers(c->sock1, NULL, NULL, NULL);
 			return;
 		}
 		end_smb_connection(c);

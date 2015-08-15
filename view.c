@@ -620,7 +620,7 @@ static int is_in_range(struct f_data *f, int y, int yw, unsigned char *txt, int 
 	int found = 0;
 	int l;
 	int s1, s2;
-	if (min && max) *min = MAXINT, *max = 0;
+	*min = MAXINT, *max = 0;
 
 	if (!utf8) {
 		l = (int)strlen(cast_const_char txt);
@@ -648,7 +648,6 @@ static int is_in_range(struct f_data *f, int y, int yw, unsigned char *txt, int 
 		}
 		continue;
 		in_view:
-		if (!min || !max) return 1;
 		found = 1;
 		for (i = 0; i < l; i++) {
 			struct search *sr = search_lookup(f, s1 + i);
@@ -1311,7 +1310,7 @@ int dump_to_file(struct f_data *fd, int h)
 				if (fc->type == FC_RESET) add_to_str(&s, &l, cast_uchar "Reset form");
 				else if (fc->type == FC_BUTTON || !fc->action) add_to_str(&s, &l, cast_uchar "Button");
 				else {
-					if (!fc->method == FM_GET) add_to_str(&s, &l, cast_uchar "Submit form: ");
+					if (fc->method == FM_GET) add_to_str(&s, &l, cast_uchar "Submit form: ");
 					else add_to_str(&s, &l, cast_uchar "Post form: ");
 					add_to_str(&s, &l, fc->action);
 				}
@@ -2096,14 +2095,13 @@ static void encode_multipart(struct session *ses, struct list_head *l, unsigned 
 				}
 				wd = get_cwd();
 				set_cwd(ses->term->cwd);
-				EINTRLOOP(fh, open(cast_const_char sv->value, O_RDONLY | O_NOCTTY));
+				fh = c_open(sv->value, O_RDONLY | O_NOCTTY);
 				if (fh == -1) {
 					errn = errno;
 					if (wd) set_cwd(wd), mem_free(wd);
 					goto error;
 				}
 				if (wd) set_cwd(wd), mem_free(wd);
-				set_bin(fh);
 				do {
 					if ((rd = hard_read(fh, buffer, F_BUFLEN)) == -1) {
 						errn = errno;
@@ -2127,11 +2125,12 @@ static void encode_multipart(struct session *ses, struct list_head *l, unsigned 
 	again:
 	for (i = 0; i <= *len - BL; i++) {
 		for (j = 0; j < BL; j++) if ((*data)[i + j] != bound[j]) goto nb;
-		for (j = BL - 1; j >= 0; j--)
+		for (j = BL - 1; j >= 0; j--) {
 			if (bound[j] < '0') bound[j] = '0' - 1;
 			if (bound[j]++ >= '9') bound[j] = '0';
 			else goto again;
-		internal("Counld not assing boundary");
+		}
+		internal("Could not assign boundary");
 		nb:;
 	}
 	for (i = 0; i < nbound_ptrs; i++) memcpy(*data + bound_ptrs[i], bound, BL);
@@ -2522,9 +2521,9 @@ int get_current_state(struct session *ses)
 	return -1;
 }
 
-static int find_pos_in_link(struct f_data_c *fd,struct link *l,struct event *ev,int *xx,int *yy);
+static int find_pos_in_link(struct f_data_c *fd,struct link *l,struct links_event *ev,int *xx,int *yy);
 
-static void set_form_position(struct f_data_c *fd, struct link *l, struct event *ev)
+static void set_form_position(struct f_data_c *fd, struct link *l, struct links_event *ev)
 {
 	struct form_state *fs;
 	/* if links is a field, set cursor position */
@@ -2582,7 +2581,7 @@ static int textarea_adjust_viewport(struct f_data_c *fd, struct link *l)
 
 static void set_br_pos(struct f_data_c *fd, struct link *l)
 {
-	struct event ev;
+	struct links_event ev;
 	if (!fd->ses->term->spec->braille || fd->vs->brl_in_field) return;
 	ev.ev = EV_MOUSE;
 	ev.x = fd->ses->term->cx - fd->xp;
@@ -2607,7 +2606,7 @@ static void field_op_changed(struct f_data_c *f, struct link *lnk)
 #endif
 
 
-int field_op(struct session *ses, struct f_data_c *f, struct link *l, struct event *ev, int rep)
+int field_op(struct session *ses, struct f_data_c *f, struct link *l, struct links_event *ev, int rep)
 {
 	struct form_control *form = l->form;
 	struct form_state *fs;
@@ -2873,7 +2872,7 @@ void set_textarea(struct session *ses, struct f_data_c *f, int kbd)
 {
 	struct link *l = get_current_link(f);
 	if (l && l->type == L_AREA) {
-		struct event ev = { EV_KBD, 0, 0, 0 };
+		struct links_event ev = { EV_KBD, 0, 0, 0 };
 		ev.x = kbd;
 		field_op(ses, f, l, &ev, 1);
 	}
@@ -3050,7 +3049,7 @@ static void rep_ev(struct session *ses, struct f_data_c *fd, void (*f)(struct se
 	while (i--) f(ses, fd, a);
 }
 
-static struct link *choose_mouse_link(struct f_data_c *f, struct event *ev)
+static struct link *choose_mouse_link(struct f_data_c *f, struct links_event *ev)
 {
 	return get_link_at_location(f->f_data, ev->x + f->vs->view_posx, ev->y + f->vs->view_pos);
 }
@@ -3081,7 +3080,7 @@ static void goto_link_number(struct session *ses, unsigned char *num)
 
 
 /* l must be a valid link, ev must be a mouse event */
-static int find_pos_in_link(struct f_data_c *fd,struct link *l,struct event *ev,int *xx,int *yy)
+static int find_pos_in_link(struct f_data_c *fd,struct link *l,struct links_event *ev,int *xx,int *yy)
 {
 	int a;
 	int minx,miny;
@@ -3102,7 +3101,7 @@ static int find_pos_in_link(struct f_data_c *fd,struct link *l,struct event *ev,
 }
 
 
-static int frame_ev(struct session *ses, struct f_data_c *fd, struct event *ev)
+static int frame_ev(struct session *ses, struct f_data_c *fd, struct links_event *ev)
 {
 	int x = 1;
 
@@ -3235,14 +3234,14 @@ static int is_active_frame(struct session *ses, struct f_data_c *f)
 }
 
 #ifdef JS
-static int event_catchable(struct event *ev)
+static int event_catchable(struct links_event *ev)
 {
 	if (!(ev->ev == EV_KBD)) return 0;
 	if (ev->x == KBD_TAB || ev->x == KBD_ESC || ev->x == KBD_CTRL_C || ev->x == KBD_CLOSE) return 0;
 	return 1;
 }
 
-static int call_keyboard_event(struct f_data_c *fd, unsigned char *code, struct event *ev)
+static int call_keyboard_event(struct f_data_c *fd, unsigned char *code, struct links_event *ev)
 {
 	int keycode;
 	unsigned char *shiftkey, *ctrlkey, *altkey;
@@ -3300,7 +3299,7 @@ static int call_keyboard_event(struct f_data_c *fd, unsigned char *code, struct 
 }
 #endif
 
-static int send_to_frame(struct session *ses, struct event *ev)
+static int send_to_frame(struct session *ses, struct links_event *ev)
 {
 	int r;
 	struct f_data_c *fd;
@@ -3443,9 +3442,9 @@ void do_for_frame(struct session *ses, void (*f)(struct session *, struct f_data
 	}
 }
 
-static void do_mouse_event(struct session *ses, struct event *ev)
+static void do_mouse_event(struct session *ses, struct links_event *ev)
 {
-	struct event evv;
+	struct links_event evv;
 	struct f_data_c *fdd, *fd = current_frame(ses);
 	if (!fd) return;
 	if (ev->x >= fd->xp && ev->x < fd->xp + fd->xw &&
@@ -3466,13 +3465,13 @@ static void do_mouse_event(struct session *ses, struct event *ev)
 	if (fdd != fd) goto r;
 	return;
 	ok:
-	memcpy(&evv, ev, sizeof(struct event));
+	memcpy(&evv, ev, sizeof(struct links_event));
 	evv.x -= fd->xp;
 	evv.y -= fd->yp;
 	send_to_frame(ses, &evv);
 }
 
-void send_event(struct session *ses, struct event *ev)
+void send_event(struct session *ses, struct links_event *ev)
 {
 	if (ses->brl_cursor_mode) {
 		ses->brl_cursor_mode = 0;
@@ -3650,7 +3649,7 @@ void send_event(struct session *ses, struct event *ev)
 
 static void send_enter(struct terminal *term, void *xxx, struct session *ses)
 {
-	struct event ev = { EV_KBD, KBD_ENTER, 0, 0 };
+	struct links_event ev = { EV_KBD, KBD_ENTER, 0, 0 };
 	send_event(ses, &ev);
 }
 

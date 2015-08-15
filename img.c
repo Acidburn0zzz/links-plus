@@ -22,19 +22,8 @@
 #include <endian.h>
 #endif
 
-#ifdef HAVE_JPEG
-#include <jpeglib.h>
-#endif
-
-struct decoded_image {
-	int bla;
-};
-
 #define RESTART_SIZE 8192
 /* Size of biggest chunk of compressed data that is processed in one run */
-
-
-/* End of decoder structs */
 
 static struct g_object_image *global_goi;
 struct cached_image *global_cimg;
@@ -47,45 +36,17 @@ static int is_image_size_sane(int x, int y)
 	return a < MAXINT;
 }
 
-/* This is a dummy */
-void img_draw_decoded_image(struct graphics_device *dev, struct decoded_image *d, int x, int y, int xw, int yw, int xo, int yo)
-{
-}
-
-/* This is a dummy */
-void img_release_decoded_image(struct decoded_image *d)
-{
-	mem_free(d);
-}
-
 /* mem_free(cimg->decoder) */
 static void destroy_decoder (struct cached_image *cimg)
 {
-#ifdef HAVE_JPEG
-	struct jpg_decoder *jd;
-#endif /* #ifdef HAVE_JPEG */
-	struct png_decoder *pd;
-#ifdef HAVE_TIFF
-	struct tiff_decoder *td;
-#endif /* #ifdef HAVE_TIFF */
-
 	if (cimg->decoder){
 		switch(cimg->image_type){
 		case IM_PNG:
-			pd=(struct png_decoder *)cimg->decoder;
-			png_destroy_read_struct(
-				&pd->png_ptr,
-				&pd->info_ptr,
-				NULL);
+			png_destroy_decoder(cimg);
 			break;
 #ifdef HAVE_JPEG
 		case IM_JPG:
-			jd=(struct jpg_decoder *)cimg->decoder;
-
-			jpeg_destroy_decompress(jd->cinfo);
-			mem_free(jd->cinfo);
-			mem_free(jd->jerr);
-			if (jd->jdata) mem_free(jd->jdata);
+			jpeg_destroy_decoder(cimg);
 			break;
 #endif /* #ifdef HAVE_JPEG */
 		case IM_GIF:
@@ -96,9 +57,12 @@ static void destroy_decoder (struct cached_image *cimg)
 			break;
 #ifdef HAVE_TIFF
 		case IM_TIFF:
-			td=(struct tiff_decoder *)cimg->decoder;
-			if (td->tiff_data)mem_free(td->tiff_data);
-			td->tiff_open=0;
+			tiff_destroy_decoder(cimg);
+			break;
+#endif
+#ifdef HAVE_SVG
+		case IM_SVG:
+			svg_destroy_decoder(cimg);
 			break;
 #endif
 		}
@@ -328,6 +292,15 @@ int header_dimensions_known(struct cached_image *cimg)
 		cimg->xww = cimg->width;
 		cimg->yww = cimg->height;
 	}
+
+#ifdef HAVE_SVG
+	if (cimg->image_type == IM_SVG) {
+		/* SVG images are scaled using the cairo library, not the Links scaler */
+		cimg->width = cimg->xww;
+		cimg->height = cimg->yww;
+	}
+#endif
+
 	if (cimg->width!=cimg->xww||cimg->height!=cimg->yww) cimg->strip_optimized=0;
 	cimg->gamma_stamp=gamma_stamp;
 	if (cimg->strip_optimized){
@@ -812,22 +785,16 @@ static void r3l0ad(struct cached_image *cimg, struct g_object_image *goi)
 	cimg->state&=2;
 }
 
-/* Returns 1 if match. If returns 1 then test is mem_free'd.
+/* Returns 1 if match.
  * If doesn't return 1 then returns 0
- * dtest - Destructive TEST
  */
 static inline int dtest(unsigned char *templat, unsigned char *test)
 {
-	if (strcasecmp(cast_const_char templat, cast_const_char test)) return 0;
-	else{
-		mem_free(test);
-		return 1;
-	}
+	return !strcasecmp(cast_const_char templat, cast_const_char test);
 }
 
-/* content_type will be mem_free'd before return from this function.
- * This may be called only in state 0 or 2 */
-static void type(struct cached_image *cimg, unsigned char *content_type)
+/* This may be called only in state 0 or 2 */
+static void type(struct cached_image *cimg, unsigned char *content_type, unsigned char *data /* at least 4 bytes */)
 {
 #ifdef DEBUG
 	if (cimg->state!=0&&cimg->state!=2){
@@ -836,49 +803,66 @@ static void type(struct cached_image *cimg, unsigned char *content_type)
 	}
 #endif /* #ifdef DEBUG */
 #ifdef HAVE_JPEG
-	if (dtest(cast_uchar "image/jpeg",content_type)){
+	if (data[0] == 0xff && data[1] == 0xd8)
+		goto have_jpeg;
+#endif
+#ifdef HAVE_TIFF
+	if (data[0] == 'I' && data[1] == 'I')
+		goto have_tiff;
+	if (data[0] == 'M' && data[1] == 'M')
+		goto have_tiff;
+#endif
+#ifdef HAVE_SVG
+	if (data[0] == '<' && data[1] == '?')
+		goto have_svg;
+#endif
+	if (data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G')
+		goto have_png;
+	if (data[0] == 'G' && data[1] == 'I' && data[2] == 'F')
+		goto have_gif;
+#ifdef HAVE_JPEG
+	if (dtest(cast_uchar "image/jpeg",content_type) ||
+	    dtest(cast_uchar "image/jpg",content_type) ||
+	    dtest(cast_uchar "image/jpe",content_type) ||
+	    dtest(cast_uchar "image/pjpe",content_type) ||
+	    dtest(cast_uchar "image/pjpeg",content_type) ||
+	    dtest(cast_uchar "image/pjpg",content_type)) {
+		have_jpeg:
 		cimg->image_type=IM_JPG;
 		jpeg_start(cimg);
-	}else if (dtest(cast_uchar "image/jpg",content_type)){
-		cimg->image_type=IM_JPG;
-		jpeg_start(cimg);
-	}else if (dtest(cast_uchar "image/jpe",content_type)){
-		cimg->image_type=IM_JPG;
-		jpeg_start(cimg);
-	}else if (dtest(cast_uchar "image/pjpe",content_type)){
-		cimg->image_type=IM_JPG;
-		jpeg_start(cimg);
-	}else if (dtest(cast_uchar "image/pjpeg",content_type)){
-		cimg->image_type=IM_JPG;
-		jpeg_start(cimg);
-	}else if (dtest(cast_uchar "image/pjpg",content_type)){
-		cimg->image_type=IM_JPG;
-		jpeg_start(cimg);
-	}else
+	} else
 #endif /* #ifdef HAVE_JPEG */
-		if (dtest(cast_uchar "image/png",content_type)){
+	if (dtest(cast_uchar "image/png",content_type) ||
+	    dtest(cast_uchar "image/x-png",content_type)) {
+		have_png:
 		cimg->image_type=IM_PNG;
 		png_start(cimg);
-	}else if (dtest(cast_uchar "image/x-png",content_type)){
-		cimg->image_type=IM_PNG;
-		png_start(cimg);
-	}else if (dtest(cast_uchar "image/gif",content_type)){
+	} else if (dtest(cast_uchar "image/gif",content_type)){
+		have_gif:
 		cimg->image_type=IM_GIF;
 		gif_start(cimg);
-	}else if (dtest(cast_uchar "image/x-xbitmap",content_type)){
+	} else if (dtest(cast_uchar "image/x-xbitmap",content_type)){
 		cimg->image_type=IM_XBM;
 		xbm_start(cimg);
+	} else
 #ifdef HAVE_TIFF
-	}else if (dtest(cast_uchar "image/tiff",content_type)){
+	if (dtest(cast_uchar "image/tiff",content_type) ||
+	    dtest(cast_uchar "image/tif",content_type)) {
+		have_tiff:
 		cimg->image_type=IM_TIFF;
 		tiff_start(cimg);
-	}else if (dtest(cast_uchar "image/tif",content_type)){
-		cimg->image_type=IM_TIFF;
-		tiff_start(cimg);
+	} else
 #endif /* #ifdef HAVE_TIFF */
-	}else{
+#ifdef HAVE_SVG
+	if (dtest(cast_uchar "image/svg+xml",content_type) ||
+	    dtest(cast_uchar "image/svg",content_type)) {
+		have_svg:
+		cimg->image_type=IM_SVG;
+		svg_start(cimg);
+	} else
+#endif /* #ifdef HAVE_SVG */
+	{
 		/* Error */
-		mem_free(content_type);
 		img_end(cimg);
 		return;
 	}
@@ -910,7 +894,8 @@ static int img_process_download(struct g_object_image *goi, struct f_data_c *fda
 	}
 #endif /* #ifdef DEBUG */
 	if (!goi->af->rq) return 0;
-	if (!goi->af->rq->ce) goto end;
+	if (get_file(goi->af->rq, &data, &dataend)) goto end;
+	if (dataend - data < 4) goto end;
 	/*fprintf(stderr, "processing: %s\n", goi->af->rq->ce->url);*/
 	if (goi->af->rq->ce->count2!=cimg->last_count2||
 		(goi->af->rq->ce->count!=cimg->last_count && cimg->eof_hit) ||
@@ -925,7 +910,8 @@ static int img_process_download(struct g_object_image *goi, struct f_data_c *fda
 		ctype=get_content_type(goi->af->rq->ce->head,
 			goi->af->rq->url);
 		if (!ctype) ctype = stracpy(cast_uchar "application/octet-stream");
-		type(cimg,ctype);
+		type(cimg,ctype,data);
+		mem_free(ctype);
 	}
 
 	/* Now, if we are in state where decoder is running (8, 10, 12, 14), we may feed
@@ -933,7 +919,6 @@ static int img_process_download(struct g_object_image *goi, struct f_data_c *fda
 	 */
 
 	if (!((cimg->state^8)&9)){
-		if (get_file(goi->af->rq, &data, &dataend)) goto end;
 		length = (int)(dataend - data);
 		if (length<=cimg->last_length) goto end; /* No new data */
 
@@ -943,7 +928,7 @@ static int img_process_download(struct g_object_image *goi, struct f_data_c *fda
 			length=RESTART_SIZE;
 			chopped=1;
 			if (fdatac) {
-				refresh_image(fdatac,(struct g_object *)goi,1);
+				refresh_image(fdatac,(struct g_object *)goi,0);
 			}
 		}
 		/* Decoder has been already started */
@@ -967,6 +952,11 @@ static int img_process_download(struct g_object_image *goi, struct f_data_c *fda
 			tiff_restart(cimg,data,length);
 			break;
 #endif /* #ifdef HAVE_TIFF */
+#ifdef HAVE_SVG
+		case IM_SVG:
+			svg_restart(cimg,data,length);
+			break;
+#endif /* #ifdef HAVE_SVG */
 #ifdef DEBUG
 		default:
 			fprintf(stderr,"cimg->image_type=%d\n",cimg->state);
@@ -985,10 +975,16 @@ img_process_download.\n");
 		 * unprocessed data still wait for us :)
 		 */
 		if (!chopped){
+			if (!((cimg->state^8)&9)) {
 #ifdef HAVE_TIFF
-			if (!((cimg->state^8)&9)&&cimg->image_type==IM_TIFF)
-				tiff_finish(cimg);
+				if (cimg->image_type==IM_TIFF)
+					tiff_finish(cimg);
 #endif
+#ifdef HAVE_SVG
+				if (cimg->image_type==IM_SVG)
+					svg_finish(cimg);
+#endif
+			}
 			cimg->eof_hit=1;
 			if (goi->af->rq->ce)
 				cimg->last_count=goi->af->rq->ce->count;
@@ -1347,7 +1343,7 @@ void change_image (struct g_object_image *goi, unsigned char *url, unsigned char
 	find_or_make_cached_image(goi, url, fdata->opt.image_scale);
 	/* Automatically sets up global_cimg */
 
-	refresh_image(fdata->fd,(struct g_object*)goi,1);
+	refresh_image(fdata->fd,(struct g_object*)goi,0);
 }
 
 #endif
@@ -1372,6 +1368,10 @@ int known_image_type(unsigned char *type)
 #ifdef HAVE_TIFF
 	if (!strcasecmp(cast_const_char type, "image/tiff")) return 1;
 	if (!strcasecmp(cast_const_char type, "image/tif")) return 1;
+#endif
+#ifdef HAVE_SVG
+	if (!strcasecmp(cast_const_char type, "image/svg+xml")) return 1;
+	if (!strcasecmp(cast_const_char type, "image/svg")) return 1;
 #endif
 #endif
 	return 0;

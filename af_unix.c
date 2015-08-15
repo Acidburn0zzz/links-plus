@@ -7,7 +7,9 @@
 
 #ifdef DONT_USE_AF_UNIX
 
-int bind_to_af_unix(void)
+int s_unix_fd = -1;
+
+int bind_to_af_unix(unsigned char *name)
 {
 	return -1;
 }
@@ -43,7 +45,7 @@ static union address s_unix;
 static union address s_unix_acc;
 
 static socklen_t s_unix_l;
-static int s_unix_fd = -1;
+int s_unix_fd = -1;
 static int s_unix_master = 0;
 
 
@@ -66,12 +68,19 @@ static struct links_handshake {
 
 #ifdef USE_AF_UNIX
 
-static int get_address(void)
+static int get_address(unsigned char *name)
 {
 	unsigned char *path;
 	if (!links_home) return -1;
 	path = stracpy(links_home);
 	add_to_strn(&path, cast_uchar LINKS_SOCK_NAME);
+	if (name) {
+		unsigned char *n = stracpy(name);
+		check_filename(&n);
+		add_to_strn(&path, cast_uchar "-");
+		add_to_strn(&path, n);
+		mem_free(n);
+	}
 	s_unix_l = (socklen_t)((unsigned char *)&s_unix.suni.sun_path - (unsigned char *)&s_unix.suni + strlen(cast_const_char path) + 1);
 	if (strlen(cast_const_char path) > sizeof(union address) || (size_t)s_unix_l > sizeof(union address)) {
 		mem_free(path);
@@ -96,13 +105,28 @@ static void unlink_unix(void)
 
 #else
 
-static int get_address(void)
+static int get_address(unsigned char *name)
 {
+	unsigned short port;
+	if (!name) {
+		port = LINKS_PORT;
+	} else if (!strcmp(cast_const_char name, "pmshell")) {
+		port = LINKS_PORT + 1;
+	} else {
+		port = LINKS_PORT;
+		while (*name) {
+			port = 257 * port + *name;
+			name++;
+		}
+		port %= LINKS_G_PORT_LEN;
+		port += LINKS_G_PORT_START;
+	}
 	memset(&s_unix, 0, sizeof s_unix);
 	s_unix.sin.sin_family = AF_INET;
-	s_unix.sin.sin_port = htons(LINKS_PORT);
+	s_unix.sin.sin_port = htons(port);
 	s_unix.sin.sin_addr.s_addr = htonl(0x7f000001);
 	s_unix_l = sizeof(struct sockaddr_in);
+	/*debug("get address %d", port);*/
 	return PF_INET;
 }
 
@@ -112,7 +136,7 @@ static void unlink_unix(void)
 
 #endif
 
-int bind_to_af_unix(void)
+int bind_to_af_unix(unsigned char *name)
 {
 	int u = 0;
 	int a1 = 1;
@@ -126,24 +150,23 @@ int bind_to_af_unix(void)
 	safe_strncpy(links_handshake.system_name, system_name, sizeof links_handshake.system_name);
 	links_handshake.system_id = SYSTEM_ID;
 	links_handshake.sizeof_long = sizeof(long);
-	if ((af = get_address()) == -1) return -1;
+	if ((af = get_address(name)) == -1) return -1;
 	again:
-	EINTRLOOP(s_unix_fd, socket(af, SOCK_STREAM, 0));
+	s_unix_fd = c_socket(af, SOCK_STREAM, 0);
 	if (s_unix_fd == -1) return -1;
 #if defined(SOL_SOCKET) && defined(SO_REUSEADDR)
 	EINTRLOOP(rs, setsockopt(s_unix_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&a1, sizeof a1));
 #endif
 	EINTRLOOP(rs, bind(s_unix_fd, &s_unix.s, s_unix_l));
 	if (rs) {
-		/*perror("");
-		debug("bind: %d", errno);*/
+		/*debug("bind: %d, %s", errno, strerror(errno));*/
 		if (af == PF_INET && errno == EADDRNOTAVAIL) {
 			/* do not try to connect if the user has not configured loopback interface */
 			EINTRLOOP(rs, close(s_unix_fd));
 			return -1;
 		}
 		EINTRLOOP(rs, close(s_unix_fd));
-		EINTRLOOP(s_unix_fd, socket(af, SOCK_STREAM, 0));
+		s_unix_fd = c_socket(af, SOCK_STREAM, 0);
 		if (s_unix_fd == -1) return -1;
 #if defined(SOL_SOCKET) && defined(SO_REUSEADDR)
 		EINTRLOOP(rs, setsockopt(s_unix_fd, SOL_SOCKET, SO_REUSEADDR, (void *)&a1, sizeof a1));
@@ -151,8 +174,7 @@ int bind_to_af_unix(void)
 		EINTRLOOP(rs, connect(s_unix_fd, &s_unix.s, s_unix_l));
 		if (rs) {
 retry:
-			/*perror("");
-			debug("connect: %d", errno);*/
+			/*debug("connect: %d, %s", errno, strerror(errno));*/
 			if (++cnt < MAX_BIND_TRIES) {
 				portable_sleep(100);
 				EINTRLOOP(rs, close(s_unix_fd));
@@ -194,7 +216,7 @@ retry_unlink:
 		return -1;
 	}
 	s_unix_master = 1;
-	set_handlers(s_unix_fd, af_unix_connection, NULL, NULL, NULL);
+	set_handlers(s_unix_fd, af_unix_connection, NULL, NULL);
 	return -1;
 }
 
@@ -206,7 +228,7 @@ static void af_unix_connection(void *xxx)
 	int rs;
 	struct links_handshake received_handshake;
 	memset(&s_unix_acc, 0, sizeof s_unix_acc);
-	EINTRLOOP(ns, accept(s_unix_fd, &s_unix_acc.s, &l));
+	ns = c_accept(s_unix_fd, &s_unix_acc.s, &l);
 	if (ns == -1) return;
 	HANDSHAKE_WRITE(ns, S2C1_HANDSHAKE_LENGTH) {
 		EINTRLOOP(rs, close(ns));
@@ -221,20 +243,20 @@ static void af_unix_connection(void *xxx)
 		EINTRLOOP(rs, close(ns));
 		return;
 	}
-	init_term(ns, ns, win_func);
-	set_highpri();
+	if (!F) {
+		init_term(ns, ns, win_func);
+		set_highpri();
+	}
+#ifdef G
+	else {
+		gfx_connection(ns);
+	}
+#endif
 }
 
 void af_unix_close(void)
 {
-	int rs;
-	if (s_unix_master) {
-		set_handlers(s_unix_fd, NULL, NULL, NULL, NULL);
-	}
-	if (s_unix_fd != -1) {
-		EINTRLOOP(rs, close(s_unix_fd));
-		s_unix_fd = -1;
-	}
+	close_socket(&s_unix_fd);
 	if (s_unix_master) {
 		unlink_unix();
 		s_unix_master = 0;

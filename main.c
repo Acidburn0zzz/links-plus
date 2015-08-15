@@ -11,7 +11,7 @@ int retval = RET_OK;
 static void unhandle_basic_signals(struct terminal *);
 static void poll_fg(void *);
 
-#ifdef WIN32
+#ifdef WIN
 static void sig_terminate(struct terminal *t)
 {
 	unhandle_basic_signals(t);
@@ -42,7 +42,7 @@ static void sig_ign(void *x)
 }
 #endif
 
-static int fg_poll_timer = -1;
+static struct timer *fg_poll_timer = NULL;
 
 void sig_tstp(struct terminal *t)
 {
@@ -80,14 +80,14 @@ void sig_tstp(struct terminal *t)
 	}
 #endif
 #endif
-	if (fg_poll_timer != -1) kill_timer(fg_poll_timer);
+	if (fg_poll_timer != NULL) kill_timer(fg_poll_timer);
 	fg_poll_timer = install_timer(FG_POLL_TIME, poll_fg, t);
 }
 
 static void poll_fg(void *t)
 {
 	int r;
-	fg_poll_timer = -1;
+	fg_poll_timer = NULL;
 	if (!F) {
 		r = unblock_itrm(1);
 #ifdef G
@@ -123,7 +123,7 @@ static void handle_basic_signals(struct terminal *term)
 	install_signal_handler(SIGHUP, (void (*)(void *))sig_intr, term, 0);
 	if (!F) install_signal_handler(SIGINT, (void (*)(void *))sig_ctrl_c, term, 0);
 	/*install_signal_handler(SIGTERM, (void (*)(void *))sig_terminate, term, 0);*/
-#ifdef WIN32
+#ifdef WIN
 	install_signal_handler(SIGQUIT, (void (*)(void *))sig_terminate, term, 0);
 #endif
 #ifdef SIGTSTP
@@ -156,7 +156,7 @@ void unhandle_terminal_signals(struct terminal *term)
 #ifdef SIGCONT
 	install_signal_handler(SIGCONT, NULL, NULL, 0);
 #endif
-	if (fg_poll_timer != -1) kill_timer(fg_poll_timer), fg_poll_timer = -1;
+	if (fg_poll_timer != NULL) kill_timer(fg_poll_timer), fg_poll_timer = NULL;
 }
 
 static void unhandle_basic_signals(struct terminal *term)
@@ -176,15 +176,14 @@ static void unhandle_basic_signals(struct terminal *term)
 #ifdef SIGCONT
 	install_signal_handler(SIGCONT, NULL, NULL, 0);
 #endif
-	if (fg_poll_timer != -1) kill_timer(fg_poll_timer), fg_poll_timer = -1;
+	if (fg_poll_timer != NULL) kill_timer(fg_poll_timer), fg_poll_timer = NULL;
 }
 
-static int terminal_pipe[2];
+int terminal_pipe[2] = { -1, -1 };
 
 int attach_terminal(int in, int out, int ctl, void *info, int len)
 {
 	struct terminal *term;
-	int rs;
 	set_nonblock(terminal_pipe[0]);
 	set_nonblock(terminal_pipe[1]);
 	handle_trm(in, out, out, terminal_pipe[1], ctl, info, len);
@@ -193,19 +192,62 @@ int attach_terminal(int in, int out, int ctl, void *info, int len)
 		handle_basic_signals(term);	/* OK, this is race condition, but it must be so; GPM installs it's own buggy TSTP handler */
 		return terminal_pipe[1];
 	}
-	EINTRLOOP(rs, close(terminal_pipe[0]));
-	EINTRLOOP(rs, close(terminal_pipe[1]));
+	close_socket(&terminal_pipe[0]);
+	close_socket(&terminal_pipe[1]);
 	return -1;
 }
 
 #ifdef G
 
-int attach_g_terminal(void *info, int len)
+int attach_g_terminal(unsigned char *cwd, void *info, int len)
 {
 	struct terminal *term;
-	term = init_gfx_term(win_func, info, len);
+	term = init_gfx_term(win_func, cwd, info, len);
 	mem_free(info);
 	return term ? 0 : -1;
+}
+
+void gfx_connection(int h)
+{
+	int r;
+	unsigned char cwd[MAX_CWD_LEN];
+	unsigned char hold_conn;
+	void *info;
+	int info_len;
+	struct terminal *term;
+
+	if (os_send_fg_cookie(h))
+		goto err_close;
+	if (hard_read(h, cwd, MAX_CWD_LEN) != MAX_CWD_LEN)
+		goto err_close;
+	cwd[MAX_CWD_LEN - 1] = 0;
+	if (hard_read(h, &hold_conn, 1) != 1)
+		goto err_close;
+	if (hard_read(h, (unsigned char *)&info_len, sizeof(int)) != sizeof(int) || info_len < 0)
+		goto err_close;
+	info = mem_alloc(info_len);
+	if (hard_read(h, info, info_len) != info_len)
+		goto err_close_free;
+	term = init_gfx_term(win_func, cwd, info, info_len);
+	if (term) {
+		if (hold_conn) {
+			term->handle_to_close = h;
+		} else {
+			hard_write(h, cast_uchar "x", 1);
+			EINTRLOOP(r, close(h));
+		}
+		mem_free(info);
+		return;
+	}
+err_close_free:
+	mem_free(info);
+err_close:
+	EINTRLOOP(r, close(h));
+}
+
+static void gfx_connection_terminate(void *p)
+{
+	terminate_loop = 1;
 }
 
 #endif
@@ -297,7 +339,6 @@ static void init(void)
 	void *info;
 	int len;
 	unsigned char *u;
-	int rs;
 
 	initialize_all_subsystems();
 
@@ -313,20 +354,16 @@ static void init(void)
 	if (!dmp && !ggr) {
 		init_os_terminal();
 	}
-	if (!ggr && !no_connect && (uh = bind_to_af_unix()) != -1) {
-		EINTRLOOP(rs, close(terminal_pipe[0]));
-		EINTRLOOP(rs, close(terminal_pipe[1]));
-		if (!(info = create_session_info(base_session, u, default_target, &len))) {
-			EINTRLOOP(rs, close(uh));
-			retval = RET_FATAL;
-			goto ttt;
-		}
+	if (!ggr && !no_connect && (uh = bind_to_af_unix(NULL)) != -1) {
+		close_socket(&terminal_pipe[0]);
+		close_socket(&terminal_pipe[1]);
+		info = create_session_info(base_session, u, default_target, &len);
 		initialize_all_subsystems_2();
 		handle_trm(get_input_handle(), get_output_handle(), uh, uh, get_ctl_handle(), info, len);
 		handle_basic_signals(NULL);	/* OK, this is race condition, but it must be so; GPM installs it's own buggy TSTP handler */
 		mem_free(info);
 #if defined(HAVE_MALLOC_TRIM)
-		malloc_trim(0);
+		malloc_trim(8192);
 #endif
 		return;
 	}
@@ -348,17 +385,81 @@ static void init(void)
 	}
 	if (!dmp) {
 		if (ggr) {
+			close_socket(&terminal_pipe[0]);
+			close_socket(&terminal_pipe[1]);
 #ifdef G
-			unsigned char *r;
-			if ((r = init_graphics(ggr_drv, ggr_mode, ggr_display))) {
-				fprintf(stderr, "%s", r);
-				mem_free(r);
-				retval = RET_SYNTAX;
-				goto ttt;
+			{
+				unsigned char *r;
+				if ((r = init_graphics(ggr_drv, ggr_mode, ggr_display))) {
+					fprintf(stderr, "%s", r);
+					mem_free(r);
+					retval = RET_SYNTAX;
+					goto ttt;
+				}
+				handle_basic_signals(NULL);
+				if (drv->get_af_unix_name && !no_connect) {
+					unsigned char *n = stracpy(drv->name);
+					unsigned char *nn = drv->get_af_unix_name();
+					if (*nn) {
+						add_to_strn(&n, cast_uchar "-");
+						add_to_strn(&n, nn);
+					}
+					uh = bind_to_af_unix(n);
+					mem_free(n);
+					if (uh != -1) {
+						unsigned char hold_conn;
+						unsigned char *w;
+						int lw;
+						shutdown_graphics();
+						if (os_receive_fg_cookie(uh)) {
+							retval = RET_ERROR;
+							goto ttt;
+						}
+						w = get_cwd();
+						if (!w) w = stracpy(cast_uchar "");
+						if (strlen(cast_const_char w) >= MAX_CWD_LEN)
+							w[MAX_CWD_LEN - 1] = 0;
+						lw = (int)strlen(cast_const_char w) + 1;
+						if (hard_write(uh, w, lw) != lw) {
+							mem_free(w);
+							retval = RET_ERROR;
+							goto ttt;
+						}
+						mem_free(w);
+						w = mem_calloc(MAX_CWD_LEN - lw);
+						if (hard_write(uh, w, MAX_CWD_LEN - lw) != MAX_CWD_LEN - lw) {
+							mem_free(w);
+							retval = RET_ERROR;
+							goto ttt;
+						}
+						mem_free(w);
+						hold_conn = *u != 0;
+						if (hard_write(uh, &hold_conn, 1) != 1) {
+							retval = RET_ERROR;
+							goto ttt;
+						}
+						info = create_session_info(base_session, u, default_target, &len);
+						if (hard_write(uh, (unsigned char *)&len, sizeof len) != sizeof len) {
+							mem_free(info);
+							retval = RET_ERROR;
+							goto ttt;
+						}
+						if (hard_write(uh, info, len) != len) {
+							mem_free(info);
+							retval = RET_ERROR;
+							goto ttt;
+						}
+						mem_free(info);
+						set_handlers(uh, gfx_connection_terminate, NULL, NULL);
+						initialize_all_subsystems_2();
+#if defined(HAVE_MALLOC_TRIM)
+						malloc_trim(0);
+#endif
+						return;
+					}
+				}
+				init_dither(drv->depth);
 			}
-			handle_basic_signals(NULL);
-			init_dither(drv->depth);
-			F = 1;
 #else
 			fprintf(stderr, "Graphics not enabled when compiling\n");
 			retval = RET_SYNTAX;
@@ -366,14 +467,26 @@ static void init(void)
 #endif
 		}
 		initialize_all_subsystems_2();
-		if (!((info = create_session_info(base_session, u, default_target, &len)) && gf_val(attach_terminal(get_input_handle(), get_output_handle(), get_ctl_handle(), info, len), attach_g_terminal(info, len)) != -1)) {
-			fatal_exit("Could not open initial session");
+		info = create_session_info(base_session, u, default_target, &len);
+		if (!F) {
+			if (attach_terminal(get_input_handle(), get_output_handle(), get_ctl_handle(), info, len) < 0)
+				fatal_exit("Could not open initial session");
 		}
+#ifdef G
+		else {
+			unsigned char *cwd = get_cwd();
+			if (!cwd)
+				cwd = stracpy(cast_uchar "");
+			if (attach_g_terminal(cwd, info, len) < 0)
+				fatal_exit("Could not open initial session");
+			mem_free(cwd);
+		}
+#endif
 	} else {
 		unsigned char *uu, *wd;
 		initialize_all_subsystems_2();
-		EINTRLOOP(rs, close(terminal_pipe[0]));
-		EINTRLOOP(rs, close(terminal_pipe[1]));
+		close_socket(&terminal_pipe[0]);
+		close_socket(&terminal_pipe[1]);
 		if (!*u) {
 			fprintf(stderr, "URL expected after %s\n", dmp == D_DUMP ? "-dump" : "-source");
 			retval = RET_SYNTAX;
@@ -411,7 +524,6 @@ static void initialize_all_subsystems_2(void)
 
 static void terminate_all_subsystems(void)
 {
-	if (!F) af_unix_close();
 	check_bottom_halves();
 	abort_all_downloads();
 #ifdef HAVE_SSL
@@ -441,10 +553,12 @@ static void terminate_all_subsystems(void)
 	end_config();
 	free_strerror_buf();
 	shutdown_trans();
-	GF(shutdown_graphics());
 	GF(free_dither());
+	GF(shutdown_graphics());
+	af_unix_close();
 	if (clipboard) mem_free(clipboard), clipboard = NULL;
-	if (fg_poll_timer != -1) kill_timer(fg_poll_timer), fg_poll_timer = -1;
+	if (fg_poll_timer != NULL) kill_timer(fg_poll_timer), fg_poll_timer = NULL;
+	terminate_select();
 	terminate_osdep();
 }
 
@@ -458,6 +572,36 @@ int main(int argc, char *argv[])
 	init_os();
 
 	get_path_to_exe();
+
+#if 0
+	{
+		int i;
+		int ix, iy, ox, oy, rep;
+		ulonglong tm = 0;
+		parse_options(g_argc - 1, g_argv + 1);
+		ix = getenv("SRC_X") ? atoi(getenv("SRC_X")) : 100;
+		iy = getenv("SRC_Y") ? atoi(getenv("SRC_Y")) : ix;
+		ox = getenv("DST_X") ? atoi(getenv("DST_X")) : 100;
+		oy = getenv("DST_Y") ? atoi(getenv("DST_Y")) : ox;
+		rep = getenv("REP") ? atoi(getenv("REP")) : 1;
+		for (i = 0; i <= rep; i++) {
+			unsigned short *dst;
+			unsigned short *src;
+			struct timeval tv1, tv2;
+			src = mem_alloc(sizeof(unsigned short) * ix * iy * 3);
+			memset(src, 0x12, sizeof(unsigned short) * ix * iy * 3);
+			gettimeofday(&tv1, NULL);
+			scale_color(src, ix, iy, &dst, ox, oy);
+			gettimeofday(&tv2, NULL);
+			if (dst) mem_free(dst);
+			if (i)
+				tm += (tv2.tv_sec * 1000000 + tv2.tv_usec) - (tv1.tv_sec * 1000000 + tv1.tv_usec);
+		}
+		fprintf(stderr, "time: %f\n", (double)tm / 1000 / rep);
+		check_memory_leaks();
+		return 0;
+	}
+#endif
 
 	select_loop(init);
 	terminate_all_subsystems();

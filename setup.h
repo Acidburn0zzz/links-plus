@@ -43,6 +43,8 @@
 
 #define LINKS_SOCK_NAME			"socket"
 #define LINKS_PORT			23755
+#define LINKS_G_PORT_START		32768
+#define LINKS_G_PORT_LEN		16384
 #define MAX_BIND_TRIES			3
 #define AF_UNIX_SOCKET_TIMEOUT		2
 
@@ -189,9 +191,13 @@
 
 #define MAX_INPUT_URL_LEN		4096
 
+#ifdef DOS
+#define SPD_DISP_TIME			1000
+#else
 #define SPD_DISP_TIME			200
-#define CURRENT_SPD_SEC			50
-#define CURRENT_SPD_AFTER		100
+#endif
+#define CURRENT_SPD_SEC			(10000 / SPD_DISP_TIME)
+#define CURRENT_SPD_AFTER		(20000 / SPD_DISP_TIME)
 
 #define RESOURCE_INFO_REFRESH		100
 

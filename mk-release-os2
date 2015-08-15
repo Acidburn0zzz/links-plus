@@ -3,7 +3,7 @@ set -e
 WARPIN="d:\prg\WarpIN"
 DLLPATH="d:\prg\emx\dll"
 DLLS="bz2.dll cryptssl.dll jpeg.dll lzma.dll png.dll open_ssl.dll z.dll"
-FILES="AUTHORS BRAILLE_HOWTO COPYING KEYS README links.exe linksos2.ico"
+FILES="AUTHORS BRAILLE COPYING KEYS README links.exe linksos2.ico"
 CC="gcc.exe"
 export CC
 CFLAGS="-O3 -fomit-frame-pointer -march=i386 -mcpu=i486 -Wall -W -Wno-unused-parameter -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations"
@@ -22,6 +22,7 @@ emxbind -a links.exe -h192
 for i in $DLLS; do
 	cp "$DLLPATH\\$i" .
 done
+cp BRAILLE_HOWTO BRAILLE
 
 rm -f links.wpi
 cmd /c set BEGINLIBPATH="$WARPIN" \& "$WARPIN\wic.exe" -a links.wpi 1 $FILES $DLLS -s links.wis
@@ -32,4 +33,4 @@ cp $FILES $DLLS links
 mv links/linksos2.ico links/links.ico
 pkzip /Add /Recurse /Path /NoExtended links.zip links\\
 rm -rf links
-rm $DLLS
+rm $DLLS BRAILLE

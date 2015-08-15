@@ -14,6 +14,7 @@ static unsigned char * const version_texts[] = {
 	TEXT_(T_COMPILE_TIME),
 	TEXT_(T_WORD_SIZE),
 	TEXT_(T_DEBUGGING_LEVEL),
+	TEXT_(T_EVENT_HANDLER),
 	TEXT_(T_IPV6),
 	TEXT_(T_COMPRESSION_METHODS),
 	TEXT_(T_ENCRYPTION),
@@ -27,6 +28,7 @@ static unsigned char * const version_texts[] = {
 	TEXT_(T_GRAPHICS_MODE),
 #ifdef G
 	TEXT_(T_IMAGE_LIBRARIES),
+	TEXT_(T_OPENMP),
 #endif
 	NULL,
 };
@@ -91,6 +93,10 @@ static void menu_version(struct terminal *term)
 
 	add_and_pad(&s, &l, term, *text_ptr++, maxlen);
 	add_num_to_str(&s, &l, DEBUGLEVEL);
+	add_to_str(&s, &l, cast_uchar "\n");
+
+	add_and_pad(&s, &l, term, *text_ptr++, maxlen);
+	add_event_string(&s, &l, term);
 	add_to_str(&s, &l, cast_uchar "\n");
 
 	add_and_pad(&s, &l, term, *text_ptr++, maxlen);
@@ -167,6 +173,34 @@ static void menu_version(struct terminal *term)
 #ifdef HAVE_TIFF
 	add_to_str(&s, &l, cast_uchar ", ");
 	add_tiff_version(&s, &l);
+#endif
+#ifdef HAVE_SVG
+	add_to_str(&s, &l, cast_uchar ", ");
+	add_svg_version(&s, &l);
+#endif
+	add_to_str(&s, &l, cast_uchar "\n");
+#endif
+
+#ifdef G
+	add_and_pad(&s, &l, term, *text_ptr++, maxlen);
+#ifndef HAVE_OPENMP
+	add_to_str(&s, &l, _(TEXT_(T_NO), term));
+#else
+	if (OPENMP_NONATOMIC || disable_openmp) {
+		add_to_str(&s, &l, _(TEXT_(T_DISABLED), term));
+	} else {
+		int thr;
+		omp_start();
+#pragma omp parallel default(none) shared(thr)
+#pragma omp single
+			thr = omp_get_num_threads();
+		omp_end();
+		add_num_to_str(&s, &l, thr);
+		add_to_str(&s, &l, cast_uchar " ");
+		if (thr == 1) add_to_str(&s, &l, _(TEXT_(T_THREAD), term));
+		else if (thr >= 2 && thr <= 4) add_to_str(&s, &l, _(TEXT_(T_THREADS), term));
+		else add_to_str(&s, &l, _(TEXT_(T_THREADS5), term));
+	}
 #endif
 	add_to_str(&s, &l, cast_uchar "\n");
 #endif
@@ -283,12 +317,12 @@ struct refresh {
 	struct session *ses;
 	int (*fn)(struct terminal *term, struct refresh *r);
 	void *data;
-	int timer;
+	struct timer *timer;
 };
 
 static void refresh(struct refresh *r)
 {
-	r->timer = -1;
+	r->timer = NULL;
 	if (r->fn(r->term, r) > 0)
 		return;
 	delete_window(r->win);
@@ -296,7 +330,7 @@ static void refresh(struct refresh *r)
 
 static void end_refresh(struct refresh *r)
 {
-	if (r->timer != -1) kill_timer(r->timer);
+	if (r->timer != NULL) kill_timer(r->timer);
 	mem_free(r);
 }
 
@@ -315,7 +349,7 @@ static int resource_info(struct terminal *term, struct refresh *r2)
 	r->term = term;
 	r->win = NULL;
 	r->fn = resource_info;
-	r->timer = -1;
+	r->timer = NULL;
 	l = 0;
 	a = init_str();
 
@@ -464,7 +498,7 @@ static int memory_info(struct terminal *term, struct refresh *r2)
 	r->term = term;
 	r->win = NULL;
 	r->fn = memory_info;
-	r->timer = -1;
+	r->timer = NULL;
 	l = 0;
 	a = init_str();
 
@@ -978,9 +1012,8 @@ static void javascript_options(struct terminal *term, void *xxx, struct session 
 
 static unsigned char * const ipv6_labels[] = { TEXT_(T_IPV6_DEFAULT), TEXT_(T_IPV6_PREFER_IPV4), TEXT_(T_IPV6_PREFER_IPV6), TEXT_(T_IPV6_USE_ONLY_IPV4), TEXT_(T_IPV6_USE_ONLY_IPV6), NULL };
 
-static int dlg_ipv6_options(struct dialog_data *dlg, struct dialog_item_data *di)
+static void dlg_ipv6_options(struct terminal *term, void *xxx, void *yyy)
 {
-	struct ipv6_options *i6o = (struct ipv6_options *)di->cdata;
 	struct dialog *d;
 	d = mem_calloc(sizeof(struct dialog) + 7 * sizeof(struct dialog_item));
 	d->title = TEXT_(T_IPV6_OPTIONS);
@@ -990,27 +1023,27 @@ static int dlg_ipv6_options(struct dialog_data *dlg, struct dialog_item_data *di
 	d->items[0].gid = 1;
 	d->items[0].gnum = ADDR_PREFERENCE_DEFAULT;
 	d->items[0].dlen = sizeof(int);
-	d->items[0].data = (void *)&i6o->addr_preference;
+	d->items[0].data = (void *)&ipv6_options.addr_preference;
 	d->items[1].type = D_CHECKBOX;
 	d->items[1].gid = 1;
 	d->items[1].gnum = ADDR_PREFERENCE_IPV4;
 	d->items[1].dlen = sizeof(int);
-	d->items[1].data = (void *)&i6o->addr_preference;
+	d->items[1].data = (void *)&ipv6_options.addr_preference;
 	d->items[2].type = D_CHECKBOX;
 	d->items[2].gid = 1;
 	d->items[2].gnum = ADDR_PREFERENCE_IPV6;
 	d->items[2].dlen = sizeof(int);
-	d->items[2].data = (void *)&i6o->addr_preference;
+	d->items[2].data = (void *)&ipv6_options.addr_preference;
 	d->items[3].type = D_CHECKBOX;
 	d->items[3].gid = 1;
 	d->items[3].gnum = ADDR_PREFERENCE_IPV4_ONLY;
 	d->items[3].dlen = sizeof(int);
-	d->items[3].data = (void *)&i6o->addr_preference;
+	d->items[3].data = (void *)&ipv6_options.addr_preference;
 	d->items[4].type = D_CHECKBOX;
 	d->items[4].gid = 1;
 	d->items[4].gnum = ADDR_PREFERENCE_IPV6_ONLY;
 	d->items[4].dlen = sizeof(int);
-	d->items[4].data = (void *)&i6o->addr_preference;
+	d->items[4].data = (void *)&ipv6_options.addr_preference;
 	d->items[5].type = D_BUTTON;
 	d->items[5].gid = B_ENTER;
 	d->items[5].fn = ok_dialog;
@@ -1020,8 +1053,7 @@ static int dlg_ipv6_options(struct dialog_data *dlg, struct dialog_item_data *di
 	d->items[6].fn = cancel_dialog;
 	d->items[6].text = TEXT_(T_CANCEL);
 	d->items[7].type = D_END;
-	do_dialog(dlg->win->term, d, getml(d, NULL));
-	return 0;
+	do_dialog(term, d, getml(d, NULL));
 }
 
 #endif
@@ -1147,9 +1179,8 @@ static int dlg_http_header_options(struct dialog_data *dlg, struct dialog_item_d
 }
 
 
-static int dlg_http_options(struct dialog_data *dlg, struct dialog_item_data *di)
+static void dlg_http_options(struct terminal *term, void *xxx, void *yyy)
 {
-	struct http_options *options = (struct http_options *)di->cdata;
 	struct dialog *d;
 	int a = 0;
 	d = mem_calloc(sizeof(struct dialog) + 10 * sizeof(struct dialog_item));
@@ -1159,45 +1190,45 @@ static int dlg_http_options(struct dialog_data *dlg, struct dialog_item_data *di
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->http10;
+	d->items[a].data = (void *)&http_options.http10;
 	a++;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->allow_blacklist;
+	d->items[a].data = (void *)&http_options.allow_blacklist;
 	a++;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->bug_302_redirect;
+	d->items[a].data = (void *)&http_options.bug_302_redirect;
 	a++;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->bug_post_no_keepalive;
+	d->items[a].data = (void *)&http_options.bug_post_no_keepalive;
 	a++;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->no_accept_charset;
+	d->items[a].data = (void *)&http_options.no_accept_charset;
 	a++;
 #ifdef HAVE_ANY_COMPRESSION
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->no_compression;
+	d->items[a].data = (void *)&http_options.no_compression;
 	a++;
 #endif
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void *)&options->retry_internal_errors;
+	d->items[a].data = (void *)&http_options.retry_internal_errors;
 	a++;
 	d->items[a].type = D_BUTTON;
 	d->items[a].gid = 0;
 	d->items[a].fn = dlg_http_header_options;
 	d->items[a].text = TEXT_(T_HEADER_OPTIONS);
-	d->items[a].data = (void *)&options->header;
+	d->items[a].data = (void *)&http_options.header;
 	d->items[a].dlen = sizeof(struct http_header_options);
 	a++;
 	d->items[a].type = D_BUTTON;
@@ -1212,8 +1243,7 @@ static int dlg_http_options(struct dialog_data *dlg, struct dialog_item_data *di
 	a++;
 	d->items[a].type = D_END;
 	a++;
-	do_dialog(dlg->win->term, d, getml(d, NULL));
-	return 0;
+	do_dialog(term, d, getml(d, NULL));
 }
 
 static unsigned char * const ftp_texts[] = { TEXT_(T_PASSWORD_FOR_ANONYMOUS_LOGIN), TEXT_(T_USE_PASSIVE_FTP), TEXT_(T_USE_EPRT_EPSV), TEXT_(T_USE_FAST_FTP), TEXT_(T_SET_TYPE_OF_SERVICE), NULL };
@@ -1256,10 +1286,9 @@ static void ftpopt_fn(struct dialog_data *dlg)
 }
 
 
-static int dlg_ftp_options(struct dialog_data *dlg, struct dialog_item_data *di)
+static void dlg_ftp_options(struct terminal *term, void *xxx, void *yyy)
 {
 	int a;
-	struct ftp_options *ftp_options = (struct ftp_options *)di->cdata;
 	struct dialog *d;
 	d = mem_calloc(sizeof(struct dialog) + 7 * sizeof(struct dialog_item));
 	d->title = TEXT_(T_FTP_OPTIONS);
@@ -1267,27 +1296,27 @@ static int dlg_ftp_options(struct dialog_data *dlg, struct dialog_item_data *di)
 	a=0;
 	d->items[a].type = D_FIELD;
 	d->items[a].dlen = MAX_STR_LEN;
-	d->items[a++].data = ftp_options->anon_pass;
+	d->items[a++].data = ftp_options.anon_pass;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void*)&ftp_options->passive_ftp;
+	d->items[a].data = (void*)&ftp_options.passive_ftp;
 	a++;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void*)&ftp_options->eprt_epsv;
+	d->items[a].data = (void*)&ftp_options.eprt_epsv;
 	a++;
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void*)&ftp_options->fast_ftp;
+	d->items[a].data = (void*)&ftp_options.fast_ftp;
 	a++;
 #ifdef HAVE_IPTOS
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void*)&ftp_options->set_tos;
+	d->items[a].data = (void*)&ftp_options.set_tos;
 	a++;
 #endif
 	d->items[a].type = D_BUTTON;
@@ -1301,18 +1330,16 @@ static int dlg_ftp_options(struct dialog_data *dlg, struct dialog_item_data *di)
 	d->items[a].text = TEXT_(T_CANCEL);
 	a++;
 	d->items[a].type = D_END;
-	do_dialog(dlg->win->term, d, getml(d, NULL));
-	return 0;
+	do_dialog(term, d, getml(d, NULL));
 }
 
 #ifndef DISABLE_SMB
 
 static unsigned char * const smb_labels[] = { TEXT_(T_ALLOW_HYPERLINKS_TO_SMB), NULL };
 
-static int dlg_smb_options(struct dialog_data *dlg, struct dialog_item_data *di)
+static void dlg_smb_options(struct terminal *term, void *xxx, void *yyy)
 {
 	int a;
-	struct smb_options *smb_options = (struct smb_options *)di->cdata;
 	struct dialog *d;
 	d = mem_calloc(sizeof(struct dialog) + 3 * sizeof(struct dialog_item));
 	d->title = TEXT_(T_SMB_OPTIONS);
@@ -1322,7 +1349,7 @@ static int dlg_smb_options(struct dialog_data *dlg, struct dialog_item_data *di)
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].gid = 0;
 	d->items[a].dlen = sizeof(int);
-	d->items[a].data = (void*)&smb_options->allow_hyperlinks_to_smb;
+	d->items[a].data = (void*)&smb_options.allow_hyperlinks_to_smb;
 	a++;
 	d->items[a].type = D_BUTTON;
 	d->items[a].gid = B_ENTER;
@@ -1335,8 +1362,7 @@ static int dlg_smb_options(struct dialog_data *dlg, struct dialog_item_data *di)
 	d->items[a].text = TEXT_(T_CANCEL);
 	a++;
 	d->items[a].type = D_END;
-	do_dialog(dlg->win->term, d, getml(d, NULL));
-	return 0;
+	do_dialog(term, d, getml(d, NULL));
 }
 
 #endif
@@ -1645,9 +1671,8 @@ static void proxy_fn(struct dialog_data *dlg)
 	dlg_format_buttons(dlg, term, &dlg->items[dlg->n - 2], 2, dlg->x + DIALOG_LB, &y, w, NULL, AL_CENTER);
 }
 
-static int dlg_proxy_options(struct dialog_data *dlg, struct dialog_item_data *di)
+static void dlg_proxy_options(struct terminal *term, void *xxx, void *yyy)
 {
-	struct proxies *p = (struct proxies *)di->cdata;
 	struct dialog *d;
 	int a = 0;
 	d = mem_calloc(sizeof(struct dialog) + 8 * sizeof(struct dialog_item));
@@ -1655,28 +1680,28 @@ static int dlg_proxy_options(struct dialog_data *dlg, struct dialog_item_data *d
 	d->fn = proxy_fn;
 	d->items[a].type = D_FIELD;
 	d->items[a].dlen = MAX_STR_LEN;
-	d->items[a].data = p->http_proxy;
+	d->items[a].data = proxies.http_proxy;
 	a++;
 	d->items[a].type = D_FIELD;
 	d->items[a].dlen = MAX_STR_LEN;
-	d->items[a].data = p->ftp_proxy;
+	d->items[a].data = proxies.ftp_proxy;
 	a++;
 #ifdef HAVE_SSL
 	d->items[a].type = D_FIELD;
 	d->items[a].dlen = MAX_STR_LEN;
-	d->items[a].data = p->https_proxy;
+	d->items[a].data = proxies.https_proxy;
 	a++;
 #endif
 	d->items[a].type = D_FIELD;
 	d->items[a].dlen = MAX_STR_LEN;
-	d->items[a].data = p->socks_proxy;
+	d->items[a].data = proxies.socks_proxy;
 	a++;
 	d->items[a].type = D_FIELD;
 	d->items[a].dlen = MAX_STR_LEN;
-	d->items[a].data = p->dns_append;
+	d->items[a].data = proxies.dns_append;
 	a++;
 	d->items[a].type = D_CHECKBOX;
-	d->items[a].data = (unsigned char *)&p->only_proxies;
+	d->items[a].data = (unsigned char *)&proxies.only_proxies;
 	d->items[a].dlen = sizeof(int);
 	a++;
 	d->items[a].type = D_BUTTON;
@@ -1690,8 +1715,7 @@ static int dlg_proxy_options(struct dialog_data *dlg, struct dialog_item_data *d
 	d->items[a].text = TEXT_(T_CANCEL);
 	a++;
 	d->items[a].type = D_END;
-	do_dialog(dlg->win->term, d, getml(d, NULL));
-	return 0;
+	do_dialog(term, d, getml(d, NULL));
 }
 
 #undef N_N
@@ -1730,7 +1754,7 @@ static unsigned char * const net_msg_ipv6[] = {
 };
 #endif
 
-static void net_options(struct terminal *term, void *xxx, void *yyy)
+static void dlg_net_options(struct terminal *term, void *xxx, void *yyy)
 {
 	struct dialog *d;
 	int a;
@@ -1739,7 +1763,7 @@ static void net_options(struct terminal *term, void *xxx, void *yyy)
 	snprint(max_t_str, 3, max_tries);
 	snprint(time_str, 5, receive_timeout);
 	snprint(unrtime_str, 5, unrestartable_receive_timeout);
-	d = mem_calloc(sizeof(struct dialog) + 16 * sizeof(struct dialog_item));
+	d = mem_calloc(sizeof(struct dialog) + 11 * sizeof(struct dialog_item));
 	d->title = TEXT_(T_NETWORK_OPTIONS);
 	d->fn = group_fn;
 #ifdef SUPPORT_IPV6
@@ -1797,42 +1821,6 @@ static void net_options(struct terminal *term, void *xxx, void *yyy)
 	d->items[a].type = D_CHECKBOX;
 	d->items[a].data = (unsigned char *)&download_utime;
 	d->items[a++].dlen = sizeof(int);
-#ifdef SUPPORT_IPV6
-	if (support_ipv6) {
-		d->items[a].type = D_BUTTON;
-		d->items[a].gid = 0;
-		d->items[a].fn = dlg_ipv6_options;
-		d->items[a].text = TEXT_(T_IPV6_OPTIONS);
-		d->items[a].data = (unsigned char *)&ipv6_options;
-		d->items[a++].dlen = sizeof(struct ipv6_options);
-	}
-#endif
-	d->items[a].type = D_BUTTON;
-	d->items[a].gid = 0;
-	d->items[a].fn = dlg_proxy_options;
-	d->items[a].text = TEXT_(T_PROXIES);
-	d->items[a].data = (unsigned char *)&proxies;
-	d->items[a++].dlen = sizeof(struct proxies);
-	d->items[a].type = D_BUTTON;
-	d->items[a].gid = 0;
-	d->items[a].fn = dlg_http_options;
-	d->items[a].text = TEXT_(T_HTTP_OPTIONS);
-	d->items[a].data = (unsigned char *)&http_options;
-	d->items[a++].dlen = sizeof(struct http_options);
-	d->items[a].type = D_BUTTON;
-	d->items[a].gid = 0;
-	d->items[a].fn = dlg_ftp_options;
-	d->items[a].text = TEXT_(T_FTP_OPTIONS);
-	d->items[a].data = (unsigned char *)&ftp_options;
-	d->items[a++].dlen = sizeof(struct ftp_options);
-#ifndef DISABLE_SMB
-	d->items[a].type = D_BUTTON;
-	d->items[a].gid = 0;
-	d->items[a].fn = dlg_smb_options;
-	d->items[a].text = TEXT_(T_SMB_OPTIONS);
-	d->items[a].data = (unsigned char *)&smb_options;
-	d->items[a++].dlen = sizeof(struct smb_options);
-#endif
 	d->items[a].type = D_BUTTON;
 	d->items[a].gid = B_ENTER;
 	d->items[a].fn = ok_dialog;
@@ -2151,7 +2139,7 @@ static unsigned char * const html_texts_g[] = {
 	TEXT_(T_DISPLAY_IMAGE_FILENAMES),
 	TEXT_(T_DISPLAY_IMAGES),
 	TEXT_(T_AUTO_REFRESH),
-    TEXT_(T_ALLOW_COOKIES),
+	TEXT_(T_ALLOW_COOKIES),
 	TEXT_(T_TARGET_IN_NEW_WINDOW),
 	TEXT_(T_TEXT_MARGIN),
 	cast_uchar "",
@@ -2171,7 +2159,7 @@ static unsigned char * const html_texts[] = {
 	TEXT_(T_LINK_ORDER_BY_COLUMNS),
 	TEXT_(T_NUMBERED_LINKS),
 	TEXT_(T_AUTO_REFRESH),
-    TEXT_(T_ALLOW_COOKIES),
+	TEXT_(T_ALLOW_COOKIES),
 	TEXT_(T_TARGET_IN_NEW_WINDOW),
 	TEXT_(T_TEXT_MARGIN),
 	cast_uchar "",
@@ -3046,6 +3034,41 @@ static const struct menu_item help_menu_g[] = {
 };
 #endif
 
+static const struct menu_item net_options_menu[] = {
+	{ TEXT_(T_CONNECTIONS), cast_uchar "", TEXT_(T_HK_CONNECTIONS), MENU_FUNC dlg_net_options, NULL, 0, 0 },
+	{ TEXT_(T_PROXIES), cast_uchar "", TEXT_(T_HK_PROXIES), MENU_FUNC dlg_proxy_options, NULL, 0, 0 },
+	{ TEXT_(T_HTTP_OPTIONS), cast_uchar "", TEXT_(T_HK_HTTP_OPTIONS), MENU_FUNC dlg_http_options, NULL, 0, 0 },
+	{ TEXT_(T_FTP_OPTIONS), cast_uchar "", TEXT_(T_HK_FTP_OPTIONS), MENU_FUNC dlg_ftp_options, NULL, 0, 0 },
+#ifndef DISABLE_SMB
+	{ TEXT_(T_SMB_OPTIONS), cast_uchar "", TEXT_(T_HK_SMB_OPTIONS), MENU_FUNC dlg_smb_options, NULL, 0, 0 },
+#endif
+	{ NULL, NULL, 0, NULL, NULL, 0, 0 }
+};
+
+#ifdef SUPPORT_IPV6
+static const struct menu_item net_options_ipv6_menu[] = {
+	{ TEXT_(T_CONNECTIONS), cast_uchar "", TEXT_(T_HK_CONNECTIONS), MENU_FUNC dlg_net_options, NULL, 0, 0 },
+	{ TEXT_(T_IPV6_OPTIONS), cast_uchar "", TEXT_(T_HK_IPV6_OPTIONS), MENU_FUNC dlg_ipv6_options, NULL, 0, 0 },
+	{ TEXT_(T_PROXIES), cast_uchar "", TEXT_(T_HK_PROXIES), MENU_FUNC dlg_proxy_options, NULL, 0, 0 },
+	{ TEXT_(T_HTTP_OPTIONS), cast_uchar "", TEXT_(T_HK_HTTP_OPTIONS), MENU_FUNC dlg_http_options, NULL, 0, 0 },
+	{ TEXT_(T_FTP_OPTIONS), cast_uchar "", TEXT_(T_HK_FTP_OPTIONS), MENU_FUNC dlg_ftp_options, NULL, 0, 0 },
+#ifndef DISABLE_SMB
+	{ TEXT_(T_SMB_OPTIONS), cast_uchar "", TEXT_(T_HK_SMB_OPTIONS), MENU_FUNC dlg_smb_options, NULL, 0, 0 },
+#endif
+	{ NULL, NULL, 0, NULL, NULL, 0, 0 }
+};
+#endif
+
+static void network_menu(struct terminal *term, void *xxx, void *yyy)
+{
+#ifdef SUPPORT_IPV6
+	if (support_ipv6)
+		do_menu(term, (struct menu_item *)net_options_ipv6_menu, NULL);
+	else
+#endif
+		do_menu(term, (struct menu_item *)net_options_menu, NULL);
+}
+
 static const struct menu_item setup_menu_1[] = {
 	{ TEXT_(T_LANGUAGE), cast_uchar ">", TEXT_(T_HK_LANGUAGE), MENU_FUNC menu_language_list, NULL, 1, 1 },
 };
@@ -3066,7 +3089,7 @@ static const struct menu_item setup_menu_4[] = {
 };
 
 static const struct menu_item setup_menu_5[] = {
-	{ TEXT_(T_NETWORK_OPTIONS), cast_uchar "", TEXT_(T_HK_NETWORK_OPTIONS), MENU_FUNC net_options, NULL, 0, 1 },
+	{ TEXT_(T_NETWORK_OPTIONS), cast_uchar ">", TEXT_(T_HK_NETWORK_OPTIONS), MENU_FUNC network_menu, NULL, 1, 1 },
 };
 
 static const struct menu_item setup_menu_6[] = {

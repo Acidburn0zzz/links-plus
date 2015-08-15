@@ -515,7 +515,7 @@ static void ftp_retr_file(struct connection *c, struct read_buffer *rb)
 		nol:;
 	}
 	if (!inf->pasv)
-		set_handlers(c->sock2, (void (*)(void *))got_something_from_data_connection, NULL, NULL, c);
+		set_handlers(c->sock2, (void (*)(void *))got_something_from_data_connection, NULL, c);
 	/*read_from_socket(c, c->sock1, rb, ftp_got_final_response);*/
 	ftp_got_final_response(c, rb);
 }
@@ -751,7 +751,7 @@ static void created_data_connection(struct connection *c)
 	}
 #endif
 	inf->d = 1;
-	set_handlers(c->sock2, (void (*)(void *))got_something_from_data_connection, NULL, NULL, c);
+	set_handlers(c->sock2, (void (*)(void *))got_something_from_data_connection, NULL, c);
 }
 
 static void got_something_from_data_connection(struct connection *c)
@@ -764,13 +764,13 @@ static void got_something_from_data_connection(struct connection *c)
 	if (!inf->d) {
 		int ns;
 		inf->d = 1;
-		set_handlers(c->sock2, NULL, NULL, NULL, NULL);
-		EINTRLOOP(ns, accept(c->sock2, NULL, NULL));
+		set_handlers(c->sock2, NULL, NULL, NULL);
+		ns = c_accept(c->sock2, NULL, NULL);
 		if (ns == -1) goto e;
 		set_nonblock(ns);
 		EINTRLOOP(rs, close(c->sock2));
 		c->sock2 = ns;
-		set_handlers(ns, (void (*)(void *))got_something_from_data_connection, NULL, NULL, c);
+		set_handlers(ns, (void (*)(void *))got_something_from_data_connection, NULL, c);
 		return;
 	}
 	if (!c->cache) {
@@ -820,7 +820,6 @@ do {								\
 	if (l == -1) {
 		e:
 		if (inf->conn_st != 1 && !inf->dir && !c->from) {
-			set_handlers(c->sock2, NULL, NULL, NULL, NULL);
 			close_socket(&c->sock2);
 			inf->conn_st = 2;
 			return;
@@ -865,7 +864,6 @@ do {								\
 		abort_connection(c);
 		return;
 	}
-	set_handlers(c->sock2, NULL, NULL, NULL, NULL);
 	close_socket(&c->sock2);
 	if (inf->conn_st == 1) {
 		ftp_end_request(c, S__OK);

@@ -26,7 +26,7 @@
 #if defined(__EMX__)
 #define OS2
 #elif defined(_WIN32) || defined(__CYGWIN__)
-#define WIN32
+#define WIN
 #elif defined(__INTERIX)
 #define INTERIX
 #elif defined(__BEOS__) || defined(__HAIKU__)
@@ -84,7 +84,7 @@ static inline int dir_sep(unsigned char x) { return x == '/' || x == '\\'; }
 #define ASSOC_CONS_XWIN
 #define DISABLE_SMB
 
-#elif defined(WIN32)
+#elif defined(WIN)
 
 static inline int dir_sep(unsigned char x) { return x == '/' || x == '\\'; }
 #define NEWLINE "\r\n"
@@ -110,8 +110,11 @@ static inline int dir_sep(unsigned char x) { return x == '/' || x == '\\'; }
 #else
 #define DONT_USE_AF_UNIX
 #endif
-#if defined(_UWIN) || 1
+#if defined(_UWIN)
 #define USE_WIN32_HEAP
+#endif
+#ifdef USE_WIN32_HEAP
+#define NO_FORK_ON_EXIT
 #endif
 
 #elif defined(INTERIX)
@@ -188,6 +191,8 @@ static inline int dir_sep(unsigned char x) { return x == '/'; }
 #define DEFAULT_SHELL "/bin/sh"
 #define GETSHELL getenv("SHELL")
 #define SHARED_CONFIG_DIR "/etc/"
+#define DONT_USE_AF_UNIX
+#define NO_FORK_ON_EXIT
 #define ASSOC_BLOCK
 
 #elif defined(SPAD)
@@ -205,9 +210,9 @@ static inline int dir_sep(unsigned char x) { return x == '/'; }
 #else
 #define DONT_USE_AF_UNIX
 #endif
+#define NO_FORK_ON_EXIT
 #define ASSOC_BLOCK
 #define ASSOC_CONS_XWIN
-#define NO_FORK_ON_EXIT
 
 #elif defined(OPENVMS)
 
@@ -223,10 +228,10 @@ static inline int dir_sep(unsigned char x) { return x == '/'; }
 #define HAVE_PTHREADS
 #endif
 #define DONT_USE_AF_UNIX
-#define ASSOC_BLOCK
-#define ASSOC_CONS_XWIN
 #define NO_CTRL_Z
 #define NO_FORK_ON_EXIT
+#define ASSOC_BLOCK
+#define ASSOC_CONS_XWIN
 #define DISABLE_SMB
 
 #elif defined(DOS)

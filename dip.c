@@ -48,7 +48,7 @@ unsigned aspect=65536; /* aspect=65536 for 320x240
  * If you change them, don't wonder if the letters start to look strange.
  * The numers in the comments denote which height the line applies for.
  */
-static float fancy_constants[64]={
+static const float fancy_constants[64]={
 	(float)0,(float)3,	/*  1 */
 	(float).1,(float)3,   	/*  2 */
 	(float).2,(float)3,   	/*  3 */
@@ -166,6 +166,7 @@ static inline void add_row_gray(unsigned *row_buf, unsigned char *ptr, int n,
 static inline void add_col_color(scale_t *col_buf, unsigned short *ptr,
 	int line_skip, int n, ulonglong weight)
 {
+	if (!weight) return;
 #ifndef USE_FP_SCALE
 	if (weight < 0x10000) {
 		unsigned short weight_16 = (unsigned short)weight;
@@ -195,6 +196,7 @@ static inline void add_col_color(scale_t *col_buf, unsigned short *ptr,
 static inline void add_row_color(scale_t *row_buf, unsigned short *ptr,
 	int n, ulonglong weight)
 {
+	if (!weight) return;
 #ifndef USE_FP_SCALE
 	if (weight < 0x10000) {
 		unsigned short weight_16 = (unsigned short)weight;
@@ -398,23 +400,25 @@ static inline ulonglong multiply_int(int a, int b)
  * Frees input and allocates output.
  * We assume unsigned holds at least 32 bits
  */
-static inline void enlarge_color_horizontal(unsigned short *ina, int ix, int y,
+static inline void enlarge_color_horizontal(unsigned short *in, int ix, int y,
 	unsigned short **outa, int ox)
 {
+#ifdef HAVE_OPENMP
+	int use_omp;
+#endif
 	scale_t *col_buf;
 	int a;
-	ulonglong total,out_pos,in_pos,in_begin,in_end;
 	unsigned skip=3*ix;
 	unsigned oskip=3*ox;
-	unsigned short *out, *in;
+	unsigned short *out;
 
-	if (!ina) {
+	if (!in) {
 		*outa = NULL;
 		return;
 	}
 
 	if (ix==ox){
-		*outa=ina;
+		*outa=in;
 		return;
 	}
 	if (ox && (unsigned)ox * (unsigned)y / (unsigned)ox != (unsigned)y) overalloc();
@@ -422,51 +426,73 @@ static inline void enlarge_color_horizontal(unsigned short *ina, int ix, int y,
 	out=mem_alloc_mayfail(sizeof(*out)*3*ox*y);
 	*outa=out;
 	if (!out) {
-		mem_free(ina);
+		mem_free(in);
 		return;
 	}
-	in=ina;
 	if (ix==1){
-		for (;y;y--,in+=3) for (a=ox;a;a--,out+=3){
-			out[0]=in[0];
-			out[1]=in[1];
-			out[2]=in[2];
+		unsigned short *inp = in;
+		for (;y;y--,inp+=3) for (a=ox;a;a--,out+=3){
+			out[0]=inp[0];
+			out[1]=inp[1];
+			out[2]=inp[2];
 		}
-		mem_free(ina);
+		mem_free(in);
 		return;
 	}
-	total=multiply_int(ix-1,ox-1);
-	if ((unsigned)y > MAXINT / 3 / sizeof(*col_buf)) overalloc();
-	col_buf=mem_alloc_mayfail(y*3*sizeof(*col_buf));
-	if (!col_buf) {
-		mem_free(ina);
+	multiply_int(ix-1,ox-1);
+
+	omp_start();
+#ifdef HAVE_OPENMP
+	use_omp = !OPENMP_NONATOMIC && !disable_openmp && (ox >= 24);
+#pragma omp parallel default(none) shared(col_buf) firstprivate(in,out,ix,ox,y,skip,oskip) if (use_omp)
+#endif
+	{
+		scale_t *thread_col_buf;
+		int alloc_size;
+		int out_idx;
+		if ((unsigned)y > (MAXINT - SMP_ALIGN + 1) / 3 / sizeof(*col_buf)) overalloc();
+		alloc_size = (int)(y*3*sizeof(*col_buf));
+		alloc_size = (alloc_size + SMP_ALIGN - 1) & ~(SMP_ALIGN - 1);
+#ifdef HAVE_OPENMP
+#pragma omp single
+#endif
+		{
+			int n_threads = omp_get_num_threads();
+			if (alloc_size > MAXINT / n_threads) overalloc();
+			col_buf=mem_alloc_mayfail(alloc_size * n_threads);
+		}
+		if (!col_buf) goto skip_omp;
+		thread_col_buf = (scale_t *)((char *)col_buf + alloc_size * omp_get_thread_num());
+		bias_buf_color(thread_col_buf, y, (scale_t)(ox - 1) / 2);
+#ifdef HAVE_OPENMP
+#pragma omp for nowait
+#endif
+		for (out_idx = 0; out_idx <= ox - 1; out_idx++) {
+			ulonglong out_pos, in_pos, in_end;
+			int in_idx;
+			out_pos = (ulonglong)out_idx * (ix - 1);
+			if (out_idx)
+				in_idx = (int)((out_pos - 1) / (ox - 1));
+			else
+				in_idx = 0;
+			in_pos = in_idx * (ox - 1);
+			in_end = in_pos + (ox - 1);
+			add_col_color(thread_col_buf, in + in_idx * 3, skip, y,
+				in_end - out_pos);
+			add_col_color(thread_col_buf, in + (in_idx + 1) * 3, skip, y,
+				out_pos - in_pos);
+			emit_and_bias_col_color(thread_col_buf, out + out_idx * 3, oskip, y, ox - 1);
+		}
+		skip_omp:;
+	}
+	omp_end();
+
+	mem_free(in);
+	if (col_buf) mem_free(col_buf);
+	else {
 		mem_free(out);
 		*outa = NULL;
-		return;
 	}
-	bias_buf_color(col_buf,y,(scale_t)(ox-1) / 2);
-	out_pos=0;
-	in_pos=0;
-	again:
-	in_begin=in_pos;
-	in_end=in_pos+ox-1;
-	add_col_color(col_buf,in,skip,y,
-		in_end-out_pos);
-	add_col_color(col_buf,in+3,skip,y,
-		out_pos-in_begin);
-	emit_and_bias_col_color(col_buf,out,oskip,y,ox-1);
-	out+=3;
-	out_pos+=ix-1;
-	if (out_pos>in_end){
-		in_pos=in_end;
-		in+=3;
-	}
-	if (out_pos>total){
-		mem_free(col_buf);
-		mem_free(ina);
-		return;
-	}
-	goto again;
 }
 
 /* Works for both enlarging and diminishing. Linear resample, no low pass.
@@ -528,72 +554,96 @@ static inline void scale_gray_horizontal(unsigned char *in, int ix, int y,
  * Frees ina and allocates outa.
  * If ox*3<=ix, and display_optimize, performs optimization for LCD.
  */
-static inline void scale_color_horizontal(unsigned short *ina, int ix, int y,
+static inline void scale_color_horizontal(unsigned short *in, int ix, int y,
 		unsigned short **outa, int ox)
 {
+#ifdef HAVE_OPENMP
+	int use_omp;
+#endif
 	scale_t *col_buf;
-	ulonglong total,out_pos,in_pos,in_begin,in_end,out_end;
 	unsigned skip=3*ix;
 	unsigned oskip=3*ox;
-	unsigned short *in, *out;
+	unsigned short *out;
 
-	if (!ina) {
+	if (!in) {
 		*outa = NULL;
 		return;
 	}
 
 	if (ix==ox){
-		*outa=ina;
+		*outa=in;
 		return;
 	}
 	if (ix<ox){
-		enlarge_color_horizontal(ina,ix,y,outa,ox);
+		enlarge_color_horizontal(in,ix,y,outa,ox);
 		return;
 	}
-	total=multiply_int(ix,ox);
+	multiply_int(ix,ox);
 	if (ox && (unsigned)ox * (unsigned)y / (unsigned)ox != (unsigned)y) overalloc();
 	if ((unsigned)ox * (unsigned)y > MAXINT / 3 / sizeof(*out)) overalloc();
 	out=mem_alloc_mayfail(sizeof(*out)*3*ox*y);
 	*outa=out;
 	if (!out) {
-		mem_free(ina);
+		mem_free(in);
 		return;
 	}
-	in=ina;
-	if ((unsigned)y > MAXINT / 3 / sizeof(*col_buf)) overalloc();
-	col_buf=mem_alloc_mayfail(y*3*sizeof(*col_buf));
-	if (!col_buf) {
-		mem_free(ina);
+
+	omp_start();
+#ifdef HAVE_OPENMP
+	use_omp = !OPENMP_NONATOMIC & !disable_openmp & (ox >= 24);
+#pragma omp parallel default(none) shared(col_buf) firstprivate(in,out,ix,ox,y,skip,oskip) if (use_omp)
+#endif
+	{
+		scale_t *thread_col_buf;
+		int alloc_size;
+		int out_idx;
+		if ((unsigned)y > (MAXINT - SMP_ALIGN + 1) / 3 / sizeof(*col_buf)) overalloc();
+		alloc_size = (int)(y*3*sizeof(*col_buf));
+		alloc_size = (alloc_size + SMP_ALIGN - 1) & ~(SMP_ALIGN - 1);
+#ifdef HAVE_OPENMP
+#pragma omp single
+#endif
+		{
+			int n_threads = omp_get_num_threads();
+			if (alloc_size > MAXINT / n_threads) overalloc();
+			col_buf = mem_alloc_mayfail(alloc_size * n_threads);
+		}
+		if (!col_buf) goto skip_omp;
+		thread_col_buf = (scale_t *)((char *)col_buf + alloc_size * omp_get_thread_num());
+		bias_buf_color(thread_col_buf, y, (scale_t)ix / 2);
+#ifdef HAVE_OPENMP
+#pragma omp for nowait
+#endif
+		for (out_idx = 0; out_idx < ox; out_idx++) {
+			ulonglong out_pos, out_end, in_pos;
+			int in_idx;
+			out_pos = (ulonglong)out_idx * ix;
+			out_end = out_pos + ix;
+			in_idx = (int)(out_pos / ox);
+			in_pos = in_idx * ox;
+			do {
+				ulonglong in_begin, in_end;
+				in_begin = in_pos;
+				in_end = in_pos + ox;
+				if (in_begin < out_pos) in_begin = out_pos;
+				if (in_end > out_end) in_end = out_end;
+				add_col_color(thread_col_buf, in + in_idx * 3, skip, y, in_end - in_begin);
+				in_idx++;
+				in_pos += ox;
+			} while (in_pos < out_end);
+
+			emit_and_bias_col_color(thread_col_buf, out + out_idx * 3, oskip, y, ix);
+		}
+		skip_omp:;
+	}
+	omp_end();
+
+	mem_free(in);
+	if (col_buf) mem_free(col_buf);
+	else {
 		mem_free(out);
 		*outa = NULL;
-		return;
 	}
-	bias_buf_color(col_buf,y,(scale_t)ix / 2);
-	out_pos=0;
-	in_pos=0;
-	again:
-	in_begin=in_pos;
-	in_end=in_pos+ox;
-	out_end=out_pos+ix;
-	if (in_begin<out_pos)in_begin=out_pos;
-	if (in_end>out_end)in_end=out_end;
-	add_col_color(col_buf,in,skip,y,in_end-in_begin);
-	in_end=in_pos+ox;
-	if (out_end>=in_end){
-		in_pos=in_end;
-		in+=3;
-	}
-	if (out_end<=in_end){
-			emit_and_bias_col_color(col_buf,out,oskip,y,ix);
-			out_pos=out_pos+ix;
-			out+=3;
-	}
-	if (out_pos==total) {
-		mem_free(ina);
-		mem_free(col_buf);
-		return;
-	}
-	goto again;
 }
 
 /* For magnification only. Does linear filtering. */
@@ -654,20 +704,22 @@ static inline void enlarge_gray_vertical(unsigned char *in, int x, int iy,
 
 /* For magnification only. Does linear filtering */
 /* We assume unsigned holds at least 32 bits */
-static inline void enlarge_color_vertical(unsigned short *ina, int x, int iy,
+static inline void enlarge_color_vertical(unsigned short *in, int x, int iy,
 	unsigned short **outa ,int oy)
 {
+#ifdef HAVE_OPENMP
+	int use_omp;
+#endif
 	scale_t *row_buf;
-	ulonglong total,out_pos,in_pos,in_begin,in_end;
-	unsigned short *out, *in;
+	unsigned short *out;
 
-	if (!ina) {
+	if (!in) {
 		*outa = NULL;
 		return;
 	}
 
 	if (iy==oy){
-		*outa=ina;
+		*outa=in;
 		return;
 	}
 	/* Rivendell */
@@ -676,50 +728,71 @@ static inline void enlarge_color_vertical(unsigned short *ina, int x, int iy,
 	out=mem_alloc_mayfail(sizeof(*out)*3*oy*x);
 	*outa=out;
 	if (!out) {
-		mem_free(ina);
+		mem_free(in);
 		return;
 	}
-	in=ina;
 	if (iy==1){
 		for (;oy;oy--){
 	       		memcpy(out,in,3*x*sizeof(*out));
 	       		out+=3*x;
 		}
-		mem_free(ina);
+		mem_free(in);
 		return;
 	}
-	total=multiply_int(iy-1,oy-1);
-	if ((unsigned)x > MAXINT / 3 / sizeof(*row_buf)) overalloc();
-	row_buf=mem_alloc_mayfail(x*3*sizeof(*row_buf));
-	if (!row_buf) {
-		mem_free(ina);
+	multiply_int(iy-1,oy-1);
+
+	omp_start();
+#ifdef HAVE_OPENMP
+	use_omp = (!OPENMP_NONATOMIC | !(x & 1)) & !disable_openmp & (oy >= 24);
+#pragma omp parallel default(none) shared(row_buf) firstprivate(in,out,x,iy,oy) if (use_omp)
+#endif
+	{
+		scale_t *thread_row_buf;
+		int alloc_size;
+		int out_idx;
+		if ((unsigned)x > (MAXINT - SMP_ALIGN + 1) / 3 / sizeof(*row_buf)) overalloc();
+		alloc_size = (int)(x*3*sizeof(*row_buf));
+		alloc_size = (alloc_size + SMP_ALIGN - 1) & ~(SMP_ALIGN - 1);
+#ifdef HAVE_OPENMP
+#pragma omp single
+#endif
+		{
+			int n_threads = omp_get_num_threads();
+			if (alloc_size > MAXINT / n_threads) overalloc();
+			row_buf=mem_alloc_mayfail(alloc_size * n_threads);
+		}
+		if (!row_buf) goto skip_omp;
+		thread_row_buf = (scale_t *)((char *)row_buf + alloc_size * omp_get_thread_num());
+		bias_buf_color(thread_row_buf,x,(scale_t)(oy-1) / 2);
+#ifdef HAVE_OPENMP
+#pragma omp for nowait
+#endif
+		for (out_idx = 0; out_idx <= oy - 1; out_idx++) {
+			ulonglong out_pos, in_pos, in_end;
+			int in_idx;
+			out_pos = (ulonglong)out_idx * (iy - 1);
+			if (out_idx)
+				in_idx = (int)((out_pos - 1) / (oy - 1));
+			else
+				in_idx = 0;
+			in_pos = in_idx * (oy - 1);
+			in_end = in_pos + oy - 1;
+			add_row_color(thread_row_buf, in + in_idx * 3 * x, x,
+				in_end - out_pos);
+			add_row_color(thread_row_buf, in + (in_idx + 1) * 3 * x, x,
+				out_pos - in_pos);
+			emit_and_bias_row_color(thread_row_buf, out + out_idx * 3 * x, x, oy - 1);
+		}
+		skip_omp:;
+	}
+	omp_end();
+
+	mem_free(in);
+	if (row_buf) mem_free(row_buf);
+	else {
 		mem_free(out);
 		*outa = NULL;
-		return;
 	}
-	bias_buf_color(row_buf,x,(scale_t)(oy-1) / 2);
-	out_pos=0;
-	in_pos=0;
-	again:
-	in_begin=in_pos;
-	in_end=in_pos+oy-1;
-	add_row_color(row_buf,in,x,
-		in_end-out_pos);
-	add_row_color(row_buf,in+3*x,x,
-		out_pos-in_begin);
-	emit_and_bias_row_color(row_buf,out,x,oy-1);
-	out+=3*x;
-	out_pos+=iy-1;
-	if (out_pos>in_end){
-		in_pos=in_end;
-		in+=3*x;
-	}
-	if (out_pos>total){
-		mem_free(ina);
-		mem_free(row_buf);
-		return;
-	}
-	goto again;
 }
 
 /* Both enlarges and diminishes. Linear filtering.
@@ -783,70 +856,91 @@ static inline void scale_gray_vertical(unsigned char *in, int x, int iy,
    We assume unsigned short can hold at least 16 bits.
    We assume unsigned holds at least 32 bits.
  */
-static inline void scale_color_vertical(unsigned short *ina, int x, int iy,
+static inline void scale_color_vertical(unsigned short *in, int x, int iy,
 	unsigned short **outa, int oy)
 {
+#ifdef HAVE_OPENMP
+	int use_omp;
+#endif
 	scale_t *row_buf;
-	ulonglong total,out_pos,in_pos,in_begin,in_end,out_end;
-	unsigned short *in, *out;
+	unsigned short *out;
 
-	if (!ina) {
+	if (!in) {
 		*outa = NULL;
 		return;
 	}
 
 	if (iy==oy){
-		*outa=ina;
+		*outa=in;
 		return;
 	}
 	if (iy<oy){
-		enlarge_color_vertical(ina,x,iy,outa,oy);
+		enlarge_color_vertical(in,x,iy,outa,oy);
 		return;
 	}
-	total=multiply_int(iy,oy);
+	multiply_int(iy,oy);
 	if (x && (unsigned)x * (unsigned)oy / (unsigned)x != (unsigned)oy) overalloc();
 	if ((unsigned)x * (unsigned)oy > MAXINT / 3 / sizeof(*out)) overalloc();
 	out=mem_alloc_mayfail(sizeof(*out)*3*oy*x);
 	*outa=out;
 	if (!out) {
-		mem_free(ina);
+		mem_free(in);
 		return;
 	}
-	in=ina;
-	if ((unsigned)x > MAXINT / 3 / sizeof(*row_buf)) overalloc();
-	row_buf=mem_alloc_mayfail(x*3*sizeof(*row_buf));
-	if (!row_buf) {
-		mem_free(ina);
+	omp_start();
+#ifdef HAVE_OPENMP
+	use_omp = (!OPENMP_NONATOMIC | !(x & 1)) & !disable_openmp & (oy >= 24);
+#pragma omp parallel default(none) shared(row_buf) firstprivate(in,out,x,iy,oy) if (use_omp)
+#endif
+	{
+		scale_t *thread_row_buf;
+		int alloc_size;
+		int out_idx;
+		if ((unsigned)x > (MAXINT - SMP_ALIGN + 1) / 3 / sizeof(*row_buf)) overalloc();
+		alloc_size = (int)(x*3*sizeof(*row_buf));
+		alloc_size = (alloc_size + SMP_ALIGN - 1) & ~(SMP_ALIGN - 1);
+#ifdef HAVE_OPENMP
+#pragma omp single
+#endif
+		{
+			int n_threads = omp_get_num_threads();
+			if (alloc_size > MAXINT / n_threads) overalloc();
+			row_buf = mem_alloc_mayfail(alloc_size * n_threads);
+		}
+		if (!row_buf) goto skip_omp;
+		thread_row_buf = (scale_t *)((char *)row_buf + alloc_size * omp_get_thread_num());
+		bias_buf_color(thread_row_buf,x,(scale_t)iy / 2);
+#ifdef HAVE_OPENMP
+#pragma omp for nowait
+#endif
+		for (out_idx = 0; out_idx < oy; out_idx++) {
+			ulonglong out_pos, out_end, in_pos;
+			int in_idx;
+			out_pos = (ulonglong)out_idx * iy;
+			out_end = out_pos + iy;
+			in_idx = (int)(out_pos / oy);
+			in_pos = in_idx * oy;
+			do {
+				ulonglong in_begin, in_end;
+				in_begin = in_pos;
+				in_end = in_pos + oy;
+				if (in_begin < out_pos) in_begin = out_pos;
+				if (in_end > out_end) in_end = out_end;
+				add_row_color(thread_row_buf, in + in_idx * 3 * x, x, in_end - in_begin);
+				in_idx++;
+				in_pos += oy;
+			} while (in_pos < out_end);
+			emit_and_bias_row_color(thread_row_buf, out + out_idx * 3 * x, x, iy);
+		}
+		skip_omp:;
+	}
+	omp_end();
+	mem_free(in);
+	if (row_buf) mem_free(row_buf);
+	else {
 		mem_free(out);
 		*outa = NULL;
-		return;
 	}
-	bias_buf_color(row_buf,x,(scale_t)iy / 2);
-	out_pos=0;
-	in_pos=0;
-	again:
-	in_begin=in_pos;
-	in_end=in_pos+oy;
-	out_end=out_pos+iy;
-	if (in_begin<out_pos)in_begin=out_pos;
-	if (in_end>out_end)in_end=out_end;
-	add_row_color(row_buf,in,x,in_end-in_begin);
-	in_end=in_pos+oy;
-	if (out_end>=in_end){
-		in_pos=in_end;
-		in+=3*x;
-	}
-	if (out_end<=in_end){
-			emit_and_bias_row_color(row_buf,out,x,iy);
-			out_pos=out_pos+iy;
-			out+=3*x;
-	}
-	if (out_pos==total){
-		mem_free(ina);
-		mem_free(row_buf);
-		return;
-	}
-	goto again;
 }
 
 
@@ -1664,7 +1758,7 @@ const unsigned char *png_data, int png_length, struct style *style)
 	for (y0=y;y0;y0--){
 		i2ptr[-1]=0;
 		memcpy(i2ptr,dptr,*x);
-		i2ptr[ix-1]=0;
+		i2ptr[*x]=0;
 		i2ptr+=ix;
 		dptr+=*x;
 	}

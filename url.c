@@ -151,14 +151,17 @@ unsigned char *get_protocol_name(unsigned char *url)
 	return memacpy(url, l);
 }
 
-unsigned char *get_host_and_pass(unsigned char *url)
+unsigned char *get_keepalive_id(unsigned char *url)
 {
-	unsigned char *u, *h, *p, *z, *k;
+	unsigned char *h, *p, *k, *d;
 	int hl, pl;
-	if (parse_url(url, NULL, &u, NULL, NULL, NULL, &h, &hl, &p, &pl, NULL, NULL, NULL)) return NULL;
-	z = u ? u : h;
+	if (parse_url(url, NULL, NULL, NULL, NULL, NULL, &h, &hl, &p, &pl, &d, NULL, NULL)) return NULL;
+	if (!casecmp(url, cast_uchar "proxy://", 8) && !casecmp(d, cast_uchar "https://", 8)) {
+		if (parse_url(d, NULL, NULL, NULL, NULL, NULL, &h, &hl, &p, &pl, NULL, NULL, NULL)) return NULL;
+	}
 	k = p ? p + pl : h + hl;
-	return memacpy(z, k - z);
+	if (!k) return stracpy(cast_uchar "");
+	return memacpy(url, k - url);
 }
 
 unsigned char *get_host_name(unsigned char *url)

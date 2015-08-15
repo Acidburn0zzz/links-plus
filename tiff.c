@@ -14,6 +14,13 @@
 #include <tiffio.h>
 #include "bits.h"
 
+struct tiff_decoder{
+	unsigned char *tiff_data; /* undecoded data */
+	int tiff_size;	/* size of undecoded file */
+	int tiff_pos;
+	int tiff_open;   /* 1 if tiff was open, means: tiff_data, tiff_size and tiff_pos are valid */
+};
+
 void tiff_start(struct cached_image *cimg)
 {
 	struct tiff_decoder * deco;
@@ -118,8 +125,7 @@ static int tiff_close(void *data)
 	struct tiff_decoder *deco=(struct tiff_decoder*)cimg->decoder;
 
 	if (!deco->tiff_open)internal("BUG IN LIBTIFF: closeproc called on closed file. Contact the libtiff authors.\n");
-	if (deco->tiff_data)mem_free(deco->tiff_data),deco->tiff_data=NULL;
-	deco->tiff_open=0;
+	tiff_destroy_decoder(cimg);
 	return 0;
 }
 
@@ -254,6 +260,13 @@ void tiff_finish(struct cached_image *cimg)
 	flip_buffer((void*)(cimg->buffer),cimg->width,cimg->height);
 
 	img_end(cimg);
+}
+
+void tiff_destroy_decoder(struct cached_image *cimg)
+{
+	struct tiff_decoder *deco=(struct tiff_decoder *)cimg->decoder;
+	if (deco->tiff_data) mem_free(deco->tiff_data), deco->tiff_data = NULL;
+	deco->tiff_open=0;
 }
 
 void add_tiff_version(unsigned char **s, int *l)

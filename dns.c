@@ -13,7 +13,7 @@ int support_ipv6;
 #define EXTERNAL_LOOKUP
 #endif
 
-#if defined(WIN32) || defined(INTERIX)
+#if defined(WIN) || defined(INTERIX)
 #define EXTRA_IPV6_LOOKUP
 #endif
 
@@ -39,7 +39,6 @@ struct dnsquery {
 #endif
 	void (*fn)(void *, int);
 	void *data;
-	void (*xfn)(struct dnsquery *, int);
 	int h;
 	struct dnsquery **s;
 	struct lookup_result *addr;
@@ -50,6 +49,7 @@ struct dnsquery {
 static int dns_cache_addr_preference = -1;
 static struct list_head dns_cache = {&dns_cache, &dns_cache};
 
+static void end_dns_lookup(struct dnsquery *q, int a);
 static int shrink_dns_cache(int u);
 
 static int get_addr_byte(unsigned char **ptr, unsigned char *res, unsigned char stp)
@@ -67,14 +67,14 @@ static int get_addr_byte(unsigned char **ptr, unsigned char *res, unsigned char 
 	return 0;
 }
 
-int numeric_ip_address(unsigned char *name, unsigned char *host)
+int numeric_ip_address(unsigned char *name, unsigned char address[4])
 {
 	unsigned char dummy[4];
-	if (!host) host = dummy;
-	if (get_addr_byte(&name, host + 0, '.')) return -1;
-	if (get_addr_byte(&name, host + 1, '.')) return -1;
-	if (get_addr_byte(&name, host + 2, '.')) return -1;
-	if (get_addr_byte(&name, host + 3, 0)) return -1;
+	if (!address) address = dummy;
+	if (get_addr_byte(&name, address + 0, '.')) return -1;
+	if (get_addr_byte(&name, address + 1, '.')) return -1;
+	if (get_addr_byte(&name, address + 2, '.')) return -1;
+	if (get_addr_byte(&name, address + 3, 0)) return -1;
 	return 0;
 }
 
@@ -367,17 +367,9 @@ static void end_real_lookup(struct dnsquery *q)
 	r = 0;
 
 	end:
-	set_handlers(q->h, NULL, NULL, NULL, NULL);
+	set_handlers(q->h, NULL, NULL, NULL);
 	EINTRLOOP(rs, close(q->h));
-	q->xfn(q, r);
-}
-
-static void failed_real_lookup(struct dnsquery *q)
-{
-	int rs;
-	set_handlers(q->h, NULL, NULL, NULL, NULL);
-	EINTRLOOP(rs, close(q->h));
-	q->xfn(q, 1);
+	end_dns_lookup(q, r);
 }
 #endif
 
@@ -391,13 +383,13 @@ static int do_lookup(struct dnsquery *q, int force_async)
 		sync_lookup:
 #endif
 		do_real_lookup(q->name, q->addr_preference, q->addr);
-		q->xfn(q, !q->addr->n);
+		end_dns_lookup(q, !q->addr->n);
 		return 0;
 #ifndef NO_ASYNC_LOOKUP
 	} else {
-		q->h = start_thread((void (*)(void *, int))lookup_fn, q, (int)((unsigned char *)strchr(cast_const_char q->name, 0) + 1 - (unsigned char *)q));
+		q->h = start_thread((void (*)(void *, int))lookup_fn, q, (int)((unsigned char *)strchr(cast_const_char q->name, 0) + 1 - (unsigned char *)q), 1);
 		if (q->h == -1) goto sync_lookup;
-		set_handlers(q->h, (void (*)(void *))end_real_lookup, NULL, (void (*)(void *))failed_real_lookup, q);
+		set_handlers(q->h, (void (*)(void *))end_real_lookup, NULL, q);
 		return 1;
 	}
 #endif
@@ -504,7 +496,6 @@ int find_host_no_cache(unsigned char *name, struct lookup_result *addr, void **q
 	q->addr_preference = ipv6_options.addr_preference;
 	strcpy(cast_char q->name, cast_const_char name);
 	if (qp) *(struct dnsquery **) qp = q;
-	q->xfn = end_dns_lookup;
 	return do_queued_lookup(q);
 }
 
@@ -592,16 +583,16 @@ int ipv6_full_access(void)
 	 * connects it and closes it.
 	 */
 	struct sockaddr_in6 sin6;
-	int h, c;
+	int h, c, rs;
 	if (!support_ipv6) return 0;
-	h = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+	h = c_socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
 	if (h == -1) return 0;
 	memset(&sin6, 0, sizeof sin6);
 	sin6.sin6_family = AF_INET6;
 	sin6.sin6_port = htons(1024);
 	memcpy(&sin6.sin6_addr.s6_addr, "\052\001\004\060\000\015\000\000\002\314\236\377\376\044\176\032", 16);
-	c = connect(h, (struct sockaddr *)(void *)&sin6, sizeof sin6);
-	close(h);
+	EINTRLOOP(c, connect(h, (struct sockaddr *)(void *)&sin6, sizeof sin6));
+	EINTRLOOP(rs, close(h));
 	if (!c) return 1;
 #endif
 	return 0;
@@ -653,7 +644,7 @@ void init_dns(void)
 #ifdef SUPPORT_IPV6
 	{
 		int h, rs;
-		EINTRLOOP(h, socket(AF_INET6, SOCK_STREAM, 0));
+		h = c_socket(AF_INET6, SOCK_STREAM, 0);
 		if (h == -1) {
 			support_ipv6 = 0;
 		} else {

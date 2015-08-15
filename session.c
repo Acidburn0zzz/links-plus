@@ -778,7 +778,7 @@ static void download_data(struct status *stat, struct download *down)
 				down->url = u;
 				down->stat.state = S_WAIT_REDIR;
 				if (down->win) {
-					struct event ev = { EV_REDRAW, 0, 0, 0 };
+					struct links_event ev = { EV_REDRAW, 0, 0, 0 };
 					ev.x = down->win->term->x;
 					ev.y = down->win->term->y;
 					down->win->handler(down->win, &ev, 0);
@@ -804,15 +804,17 @@ static void download_data(struct status *stat, struct download *down)
 have_frag:
 			while (frag->offset <= down->last_pos && frag->offset + frag->length > down->last_pos) {
 #ifdef HAVE_OPEN_PREALLOC
-				if (!down->last_pos && !strcmp(cast_const_char down->file, cast_const_char down->orig_file) && (!down->stat.prg || down->stat.prg->size > 0)) {
-					struct stat st;
-					int rs;
-					EINTRLOOP(rs, fstat(down->handle, &st));
-					if (rs || !S_ISREG(st.st_mode)) goto skip_prealloc;
-					close_download_file(down);
-					delete_download_file(down);
-					if ((down->handle = create_download_file(get_download_ses(down), down->cwd, down->file, !down->prog ? CDF_EXCL : CDF_RESTRICT_PERMISSION | CDF_EXCL, down->stat.prg ? down->stat.prg->size : ce->length)) < 0) goto det_abt;
-					skip_prealloc:;
+				if (!down->last_pos && !strcmp(cast_const_char down->file, cast_const_char down->orig_file)) {
+					off_t est_length = stat->state < 0 ? ce->length : down->stat.prg ? down->stat.prg->size : 0;
+					if (est_length > 0) {
+						struct stat st;
+						EINTRLOOP(rs, fstat(down->handle, &st));
+						if (rs || !S_ISREG(st.st_mode)) goto skip_prealloc;
+						close_download_file(down);
+						delete_download_file(down);
+						if ((down->handle = create_download_file(get_download_ses(down), down->cwd, down->file, !down->prog ? CDF_EXCL : CDF_RESTRICT_PERMISSION | CDF_EXCL, est_length)) < 0) goto det_abt;
+						skip_prealloc:;
+					}
 				}
 #endif
 				if (download_write(down, frag->data + (down->last_pos - frag->offset), frag->length - (down->last_pos - frag->offset))) {
@@ -886,7 +888,7 @@ have_frag:
 		return;
 	}
 	if (down->win) {
-		struct event ev = { EV_REDRAW, 0, 0, 0 };
+		struct links_event ev = { EV_REDRAW, 0, 0, 0 };
 		ev.x = down->win->term->x;
 		ev.y = down->win->term->y;
 		down->win->handler(down->win, &ev, 0);
@@ -924,7 +926,7 @@ int create_download_file(struct session *ses, unsigned char *cwd, unsigned char 
 	} else
 #endif
 	{
-		EINTRLOOP(h, open(cast_const_char file, O_CREAT | O_NOCTTY | O_WRONLY | (mode & CDF_NOTRUNC ? 0 : O_TRUNC) | (mode & CDF_EXCL ? O_EXCL : 0), perm));
+		h = c_open3(file, O_CREAT | O_NOCTTY | O_WRONLY | (mode & CDF_NOTRUNC ? 0 : O_TRUNC) | (mode & CDF_EXCL ? O_EXCL : 0), perm);
 	}
 	if (h == -1) {
 		unsigned char *msg, *msge;
@@ -939,7 +941,6 @@ int create_download_file(struct session *ses, unsigned char *cwd, unsigned char 
 		msg_box(ses->term, getml(msg, msge, NULL), TEXT_(T_DOWNLOAD_ERROR), AL_CENTER | AL_EXTD_TEXT, TEXT_(T_COULD_NOT_CREATE_FILE), cast_uchar " ", msg, cast_uchar ": ", msge, NULL, NULL, 1, TEXT_(T_CANCEL), NULL, B_ENTER | B_ESC);
 		goto x;
 	}
-	set_bin(h);
 	x:
 	mem_free(file);
 	if (wd) set_cwd(wd), mem_free(wd);
@@ -1038,7 +1039,7 @@ static unsigned char *get_temp_name(unsigned char *url, unsigned char *head)
 	unsigned char *name, *fn, *fnx;
 	unsigned char *nm;
 	unsigned char *directory = NULL;
-#ifdef WIN32
+#ifdef WIN
 	directory = cast_uchar getenv("TMP");
 	if (!directory) directory = cast_uchar getenv("TEMP");
 #endif
@@ -1686,15 +1687,16 @@ static void copy_additional_files(struct additional_files **a)
 
 static void image_timer(struct f_data_c *fd)
 {
+	uttime now;
 	struct image_refresh *ir;
 	struct list_head neww;
 	struct list_head *newp = do_not_optimize_here(&neww);
 	init_list(*newp);
-	fd->image_timer = -1;
+	fd->image_timer = NULL;
 	if (!fd->f_data) return;
+	now = (uttime)get_time();
 	foreach (ir, fd->f_data->image_refresh) {
-		if (ir->t > G_IMG_REFRESH) ir->t -= G_IMG_REFRESH;
-		else {
+		if (now - ir->start >= ir->tim) {
 			struct image_refresh *irr = ir->prev;
 			del_from_list(ir);
 			add_to_list(*newp, ir);
@@ -1706,22 +1708,29 @@ static void image_timer(struct f_data_c *fd)
 		draw_one_object(fd, ir->img);
 	}
 	free_list(*newp);
-	if (fd->image_timer == -1 && !list_empty(fd->f_data->image_refresh)) fd->image_timer = install_timer(G_IMG_REFRESH, (void (*)(void *))image_timer, fd);
+	if (fd->image_timer == NULL && !list_empty(fd->f_data->image_refresh)) fd->image_timer = install_timer(G_IMG_REFRESH, (void (*)(void *))image_timer, fd);
 }
 
 void refresh_image(struct f_data_c *fd, struct g_object *img, ttime tm)
 {
 	struct image_refresh *ir;
+	uttime now, e;
 	if (!fd->f_data) return;
+	now = (uttime)get_time();
+	e = now + (uttime)tm;
 	foreach (ir, fd->f_data->image_refresh) if (ir->img == img) {
-		if (ir->t > tm) ir->t = tm;
+		if (e - ir->start < ir->tim) {
+			ir->tim = (uttime)tm;
+			ir->start = now;
+		}
 		return;
 	}
 	ir = mem_alloc(sizeof(struct image_refresh));
 	ir->img = img;
-	ir->t = tm;
+	ir->tim = (uttime)tm;
+	ir->start = now;
 	add_to_list(fd->f_data->image_refresh, ir);
-	if (fd->image_timer == -1) fd->image_timer = install_timer(G_IMG_REFRESH, (void (*)(void *))image_timer, fd);
+	if (fd->image_timer == NULL) fd->image_timer = install_timer(!tm ? 0 : G_IMG_REFRESH, (void (*)(void *))image_timer, fd);
 }
 
 #endif
@@ -1765,8 +1774,8 @@ void reinit_f_data_c(struct f_data_c *fd)
 	fd->next_update = get_time();
 	fd->done = 0;
 	fd->parsed_done = 0;
-	if (fd->image_timer != -1) kill_timer(fd->image_timer), fd->image_timer = -1;
-	if (fd->refresh_timer != -1) kill_timer(fd->refresh_timer), fd->refresh_timer = -1;
+	if (fd->image_timer != NULL) kill_timer(fd->image_timer), fd->image_timer = NULL;
+	if (fd->refresh_timer != NULL) kill_timer(fd->refresh_timer), fd->refresh_timer = NULL;
 }
 
 struct f_data_c *create_f_data_c(struct session *ses, struct f_data_c *parent)
@@ -1784,8 +1793,8 @@ struct f_data_c *create_f_data_c(struct session *ses, struct f_data_c *parent)
 	fd->script_t = 0;
 	fd->id = id++;
 	fd->marginwidth = fd->marginheight = -1;
-	fd->image_timer = -1;
-	fd->refresh_timer = -1;
+	fd->image_timer = NULL;
+	fd->refresh_timer = NULL;
 	fd->scrolling = SCROLLING_AUTO;
 	return fd;
 }
@@ -1828,7 +1837,7 @@ static void refresh_timer(struct f_data_c *fd)
 		fd->refresh_timer = install_timer(500, (void (*)(void *))refresh_timer, fd);
 		return;
 	}
-	fd->refresh_timer = -1;
+	fd->refresh_timer = NULL;
 	if (fd->f_data && fd->f_data->refresh) {
 		fd->refresh_timer = install_timer(fd->f_data->refresh_seconds * 1000, (void (*)(void *))refresh_timer, fd);
 		goto_url_f(fd->ses, NULL, fd->f_data->refresh, cast_uchar "_self", fd, -1, 0, 0, 1);
@@ -1883,7 +1892,7 @@ fn:
 		fd->done = 1;
 		fd->parsed_done = 0;
 		if (fd->f_data->refresh) {
-			if (fd->refresh_timer != -1) kill_timer(fd->refresh_timer);
+			if (fd->refresh_timer != NULL) kill_timer(fd->refresh_timer);
 			fd->refresh_timer = install_timer((uttime)fd->f_data->refresh_seconds * 1000, (void (*)(void *))refresh_timer, fd);
 		}
 #ifdef JS
@@ -2451,9 +2460,9 @@ static void ses_go_back_to_2nd_state(struct session *ses)
 static void ses_finished_1st_state(struct object_request *rq, struct session *ses)
 {
 	if (rq->state != O_WAITING) {
-		if (ses->wtd_refresh && ses->wtd_target_base && ses->wtd_target_base->refresh_timer != -1) {
+		if (ses->wtd_refresh && ses->wtd_target_base && ses->wtd_target_base->refresh_timer != NULL) {
 			kill_timer(ses->wtd_target_base->refresh_timer);
-			ses->wtd_target_base->refresh_timer = -1;
+			ses->wtd_target_base->refresh_timer = NULL;
 		}
 	}
 	switch (rq->state) {
@@ -2773,7 +2782,7 @@ static int read_session_info(struct session *ses, void *data, int len)
 	bla:
 	if (sz) {
 		unsigned char *u, *uu;
-		if (len < 3 * (int)sizeof(int) + sz) return 0;
+		if (len < 3 * (int)sizeof(int) + sz) return -1;
 		if ((unsigned)sz >= MAXINT) overalloc();
 		u = mem_alloc(sz + 1);
 		memcpy(u, (int *)data + 3, sz);
@@ -2833,7 +2842,7 @@ void destroy_session(struct session *ses)
 	del_from_list(ses);
 }
 
-void win_func(struct window *win, struct event *ev, int fw)
+void win_func(struct window *win, struct links_event *ev, int fw)
 {
 	struct session *ses = win->data;
 	switch ((int)ev->ev) {
@@ -2841,7 +2850,8 @@ void win_func(struct window *win, struct event *ev, int fw)
 			if (ses) destroy_session(ses);
 			break;
 		case EV_INIT:
-			if (!(ses = win->data = create_session(win)) || read_session_info(ses, (char *)ev->b + sizeof(int), *(int *)ev->b)) {
+			ses = win->data = create_session(win);
+			if (read_session_info(ses, (char *)ev->b + sizeof(int), *(int *)ev->b)) {
 				register_bottom_half((void (*)(void *))destroy_terminal, win->term);
 				return;
 			}

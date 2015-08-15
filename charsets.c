@@ -350,7 +350,7 @@ int get_entity_number(unsigned char *st, int l)
 			if (c >= '0' && c <= '9') n = n * 16 + c - '0';
 			else if (c >= 'A' && c <= 'F') n = n * 16 + c - 'A' + 10;
 			else return -1;
-			if (n >= 0x10000) return -1;
+			if (n > 0x10FFFF) return -1;
 		} while (--l);
 	} else {
 		if (!l) return -1;
@@ -358,7 +358,7 @@ int get_entity_number(unsigned char *st, int l)
 			unsigned char c = *(st++);
 			if (c >= '0' && c <= '9') n = n * 10 + c - '0';
 			else return -1;
-			if (n >= 0x10000) return -1;
+			if (n > 0x10FFFF) return -1;
 		} while (--l);
 	}
 	return n;

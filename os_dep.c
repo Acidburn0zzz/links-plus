@@ -13,9 +13,12 @@
 #include <gpm.h>
 #endif
 
-
-#ifdef WIN32
+#ifdef WIN
 #include <windows.h>
+#endif
+
+#ifdef HAVE_PTHREADS
+#include <pthread.h>
 #endif
 
 #ifdef OS2
@@ -200,15 +203,71 @@ void mem_freed_large(size_t size)
 
 #endif
 
-#if defined(O_SIZE) && defined(__EMX__)
 
-int open_prealloc(unsigned char *name, int flags, int mode, off_t siz)
+#ifdef OS2
+static int os2_full_screen = 0;
+static int os2_detached = 0;
+static PTIB os2_tib = NULL;
+PPIB os2_pib = NULL;
+static HSWITCH os2_switchhandle = NULLHANDLE;
+#ifdef HAVE_SYS_FMUTEX_H
+static _fmutex fd_mutex;
+#endif
+#elif defined(HAVE_PTHREADS)
+static pthread_mutex_t pth_mutex;
+static void fd_lock(void);
+static void fd_unlock(void);
+static void fd_init(void)
 {
-	int h;
-	EINTRLOOP(h, open(name, flags | O_SIZE, mode, (unsigned long)siz));
-	return h;
+	int r;
+	r = pthread_mutex_init(&pth_mutex, NULL);
+	if (r)
+		fatal_exit("pthread_mutex_create failed: %s", strerror(r));
 }
+#endif
 
+#if !defined(OPENVMS) && !defined(DOS)
+void init_os(void)
+{
+	/* Disable per-thread heap */
+#if defined(HAVE_MALLOPT) && defined(M_ARENA_TEST)
+	mallopt(M_ARENA_TEST, 1);
+#endif
+#if defined(HAVE_MALLOPT) && defined(M_ARENA_MAX)
+	mallopt(M_ARENA_MAX, 1);
+#endif
+
+#ifdef OS2
+	DosGetInfoBlocks(&os2_tib, &os2_pib);
+	if (os2_pib) {
+		os2_switchhandle = WinQuerySwitchHandle(0, os2_pib->pib_ulpid);
+		os2_full_screen = os2_pib->pib_ultype == 0;
+		os2_detached = os2_pib->pib_ultype == 4;
+		if (os2_pib->pib_ultype == 3) force_g = 1;
+	}
+#ifdef HAVE_SYS_FMUTEX_H
+	if (_fmutex_create(&fd_mutex, 0))
+		fatal_exit("failed to create fd mutex");
+#endif
+#elif defined(HAVE_PTHREADS)
+	{
+		int r;
+		fd_init();
+		r = pthread_atfork(fd_lock, fd_unlock, fd_init);
+		if (r)
+			fatal_exit("pthread_atfork failed: %s", strerror(r));
+	}
+#endif
+
+#ifdef OS2_ADVANCED_HEAP
+	init_os2_heap();
+#endif
+
+#ifdef WIN
+	if (!GetConsoleCP())
+		force_g = 1;
+#endif
+}
 #endif
 
 
@@ -287,7 +346,7 @@ void ignore_signals(void)
 #ifdef SIGXFSZ
 	do_signal(SIGXFSZ, SIG_IGN);
 #endif
-#ifdef VMS
+#ifdef OPENVMS
 #ifdef SIGCHLD
 	do_signal(SIGCHLD, SIG_IGN);
 #endif
@@ -297,7 +356,7 @@ void ignore_signals(void)
 
 ttime get_time(void)
 {
-#if defined(OS2) || defined(WIN32)
+#if defined(OS2) || defined(WIN)
 	static unsigned last_tim = 0;
 	static ttime add = 0;
 	unsigned tim;
@@ -305,7 +364,7 @@ ttime get_time(void)
 	int rc;
 	rc = DosQuerySysInfo(QSV_MS_COUNT, QSV_MS_COUNT, &tim, sizeof tim);
 	if (rc) fatal_exit("DosQuerySysInfo failed: %d", rc);
-#elif defined(WIN32)
+#elif defined(WIN)
 	tim = GetTickCount();
 #endif
 	if (tim < last_tim) {
@@ -343,7 +402,7 @@ unsigned char *clipboard = NULL;
 
 /* Terminal size */
 
-#if defined(WIN32) || defined(OPENVMS)
+#if defined(WIN) || defined(OPENVMS)
 
 /* Cygwin has a bug and loses SIGWINCH sometimes, so poll it */
 
@@ -368,14 +427,14 @@ static void terminal_resize_poll(void)
 {
 	static int winch_thread_running = 0;
 	if (!winch_thread_running) {
-		if (start_thread(winch_thread, NULL, 0) >= 0)
+		if (start_thread(winch_thread, NULL, 0, 0) >= 0)
 			winch_thread_running = 1;
 	}
 }
 
 #endif
 
-#if defined(UNIX) || defined(WIN32) || defined(INTERIX) || defined(BEOS) || defined(RISCOS) || defined(ATHEOS) || defined(SPAD) || defined(OPENVMS)
+#if defined(UNIX) || defined(WIN) || defined(INTERIX) || defined(BEOS) || defined(RISCOS) || defined(ATHEOS) || defined(SPAD) || defined(OPENVMS)
 
 #ifdef SIGWINCH
 static void sigwinch(void *s)
@@ -389,7 +448,7 @@ void handle_terminal_resize(int fd, void (*fn)(void))
 #ifdef SIGWINCH
 	install_signal_handler(SIGWINCH, sigwinch, (void *)fn, 0);
 #endif
-#ifdef WIN32
+#ifdef WIN
 	terminal_resize_poll();
 #endif
 #ifdef OPENVMS
@@ -501,13 +560,13 @@ void handle_terminal_resize(int fd, void (*fn)(void))
 		if (_beginthread((void (*)(void *))winch_thread, NULL, 0x32000, NULL) == -1) {
 		}
 	}
-	set_handlers(winch_pipe[0], winch, NULL, NULL, fn);
+	set_handlers(winch_pipe[0], winch, NULL, fn);
 }
 
 void unhandle_terminal_resize(int fd)
 {
 	if (!winch_thread_running) return;
-	set_handlers(winch_pipe[0], NULL, NULL, NULL, NULL);
+	set_handlers(winch_pipe[0], NULL, NULL, NULL);
 }
 
 int get_terminal_size(int fd, int *x, int *y)
@@ -553,32 +612,61 @@ int get_terminal_size(int fd, int *x, int *y)
 
 #endif
 
-/* Pipe */
 
-#if defined(OS2) || (defined(WIN32) && !defined(_UWIN)) || defined(DOS)
+#if defined(OS2) && defined(HAVE_SYS_FMUTEX_H)
 
-void set_bin(int fd)
+static void fd_lock(void)
 {
-	setmode(fd, O_BINARY);
+	_fmutex_request(&fd_mutex, _FMR_IGNINT);
+}
+
+static void fd_unlock(void)
+{
+	_fmutex_release(&fd_mutex);
+}
+
+#elif defined(HAVE_PTHREADS)
+
+static void fd_lock(void)
+{
+	int r;
+	r = pthread_mutex_lock(&pth_mutex);
+	if (r)
+		fatal_exit("pthread_mutex_lock failed: %s", strerror(r));
+}
+
+static void fd_unlock(void)
+{
+	int r;
+	r = pthread_mutex_unlock(&pth_mutex);
+	if (r)
+		fatal_exit("pthread_mutex_lock failed: %s", strerror(r));
 }
 
 #else
 
-void set_bin(int fd)
-{
-}
+#define fd_lock()	do { } while (0)
+#define fd_unlock()	do { } while (0)
 
 #endif
 
-#if !defined(OPENVMS) && !defined(DOS)
-
-int c_pipe(int *fd)
+static void new_fd_cloexec(int fd)
 {
-	int r;
-	EINTRLOOP(r, pipe(fd));
-	if (!r) set_bin(fd[0]), set_bin(fd[1]);
-	return r;
+	int rs;
+	EINTRLOOP(rs, fcntl(fd, F_SETFD, FD_CLOEXEC));
 }
+
+static void new_fd_bin(int fd)
+{
+	new_fd_cloexec(fd);
+#if defined(OS2) || (defined(WIN) && !defined(_UWIN)) || defined(DOS)
+	setmode(fd, O_BINARY);
+#endif
+}
+
+/* Pipe */
+
+#if !defined(OPENVMS) && !defined(DOS)
 
 void set_nonblock(int fd)
 {
@@ -590,6 +678,130 @@ void set_nonblock(int fd)
 	int on = 1;
 	EINTRLOOP(rs, ioctl(fd, FIONBIO, &on));
 #endif
+}
+
+int c_pipe(int *fd)
+{
+	int r;
+	fd_lock();
+	EINTRLOOP(r, pipe(fd));
+	if (!r) new_fd_bin(fd[0]), new_fd_bin(fd[1]);
+	fd_unlock();
+	return r;
+}
+
+#endif
+
+int c_dup(int oh)
+{
+	int h;
+	fd_lock();
+	EINTRLOOP(h, dup(oh));
+	if (h != -1) new_fd_cloexec(h);
+	fd_unlock();
+	return h;
+}
+
+int c_socket(int d, int t, int p)
+{
+	int h;
+	fd_lock();
+	EINTRLOOP(h, socket(d, t, p));
+	if (h != -1) new_fd_cloexec(h);
+	fd_unlock();
+	return h;
+}
+
+int c_accept(int h, struct sockaddr *addr, socklen_t *addrlen)
+{
+	int rh;
+	fd_lock();
+	EINTRLOOP(rh, accept(h, addr, addrlen));
+	if (rh != -1) new_fd_cloexec(rh);
+	fd_unlock();
+	return rh;
+}
+
+int c_open(unsigned char *path, int flags)
+{
+	int h;
+	fd_lock();
+	EINTRLOOP(h, open(cast_const_char path, flags));
+	if (h != -1) new_fd_bin(h);
+	fd_unlock();
+	return h;
+}
+
+int c_open3(unsigned char *path, int flags, int mode)
+{
+	int h;
+	fd_lock();
+	EINTRLOOP(h, open(cast_const_char path, flags, mode));
+	if (h != -1) new_fd_bin(h);
+	fd_unlock();
+	return h;
+}
+
+DIR *c_opendir(unsigned char *path)
+{
+	DIR *d;
+	fd_lock();
+	ENULLLOOP(d, opendir(cast_const_char path));
+#ifdef HAVE_DIRFD
+	if (d) {
+		int h;
+		EINTRLOOP(h, dirfd(d));
+		if (h != -1) new_fd_cloexec(h);
+	}
+#endif
+	fd_unlock();
+	return d;
+}
+
+#if defined(O_SIZE) && defined(__EMX__)
+
+int open_prealloc(unsigned char *name, int flags, int mode, off_t siz)
+{
+	int h;
+	fd_lock();
+	EINTRLOOP(h, open(cast_const_char name, flags | O_SIZE, mode, (unsigned long)siz));
+	if (h != -1) new_fd_bin(h);
+	fd_unlock();
+	return h;
+}
+
+#elif defined(HAVE_OPEN_PREALLOC)
+
+int open_prealloc(unsigned char *name, int flags, int mode, off_t siz)
+{
+	int h, rs;
+	fd_lock();
+	EINTRLOOP(h, open(cast_const_char name, flags, mode));
+	if (h == -1) {
+		fd_unlock();
+		return -1;
+	}
+	new_fd_bin(h);
+	fd_unlock();
+#if defined(HAVE_FALLOCATE)
+#if defined(FALLOC_FL_KEEP_SIZE)
+	EINTRLOOP(rs, fallocate(h, FALLOC_FL_KEEP_SIZE, 0, siz));
+#else
+	EINTRLOOP(rs, fallocate(h, 0, 0, siz));
+#endif
+	if (!rs) return h;
+#endif
+#if defined(HAVE_POSIX_FALLOCATE)
+	/* posix_fallocate may fall back to overwriting the file with zeros,
+	   so don't use it on too big files */
+	if (siz > 134217728)
+		return h;
+	do {
+		rs = posix_fallocate(h, 0, siz);
+	} while (rs == EINTR);
+	if (!rs) return h;
+#endif
+	return h;
 }
 
 #endif
@@ -648,7 +860,7 @@ int is_xterm(void)
 	return 0;
 }
 
-#elif defined(WIN32) || defined(INTERIX)
+#elif defined(WIN) || defined(INTERIX)
 
 int is_xterm(void)
 {
@@ -673,61 +885,33 @@ void close_fork_tty(void)
 	struct connection *c;
 	struct k_conn *k;
 	int rs;
-	foreach (t, terminals) if (t->fdin > 0)
-		EINTRLOOP(rs, close(t->fdin));
+#ifndef NO_SIGNAL_HANDLERS
+	EINTRLOOP(rs, close(signal_pipe[0]));
+	EINTRLOOP(rs, close(signal_pipe[1]));
+#endif
+#ifdef G
+	if (drv && drv->after_fork) drv->after_fork();
+#endif
+	if (terminal_pipe[1] != -1) EINTRLOOP(rs, close(terminal_pipe[1]));
+	if (s_unix_fd != -1) close(s_unix_fd);
+	foreach (t, terminals) {
+		if (t->fdin > 0)
+			EINTRLOOP(rs, close(t->fdin));
+		if (t->handle_to_close >= 0)
+			EINTRLOOP(rs, close(t->handle_to_close));
+	}
 	foreach (d, downloads) if (d->handle > 0)
 		EINTRLOOP(rs, close(d->handle));
-	foreach (c, queue) close_socket(&c->sock1), close_socket(&c->sock2);
+	foreach (c, queue) {
+		if (c->sock1 >= 0) EINTRLOOP(rs, close(c->sock1));
+		if (c->sock2 >= 0) EINTRLOOP(rs, close(c->sock2));
+	}
 	foreach (k, keepalive_connections)
 		EINTRLOOP(rs, close(k->conn));
 }
 
-#ifdef OS2
-static int os2_full_screen = 0;
-static int os2_detached = 0;
-static PTIB os2_tib = NULL;
-PPIB os2_pib = NULL;
-static HSWITCH os2_switchhandle = NULLHANDLE;
-#endif
 
-#if !defined(OPENVMS) && !defined(DOS)
-void init_os(void)
-{
-#ifdef OS2
-	DosGetInfoBlocks(&os2_tib, &os2_pib);
-	if (os2_pib) {
-		os2_switchhandle = WinQuerySwitchHandle(0, os2_pib->pib_ulpid);
-		os2_full_screen = os2_pib->pib_ultype == 0;
-		os2_detached = os2_pib->pib_ultype == 4;
-		if (os2_pib->pib_ultype == 3) force_g = 1;
-	}
-#endif
-#ifdef OS2_ADVANCED_HEAP
-	init_os2_heap();
-#endif
-#if defined(RLIMIT_OFILE) && !defined(RLIMIT_NOFILE)
-#define RLIMIT_NOFILE RLIMIT_OFILE
-#endif
-#if defined(HAVE_GETRLIMIT) && defined(HAVE_SETRLIMIT) && defined(RLIMIT_NOFILE)
-	struct rlimit limit;
-	int rs;
-	EINTRLOOP(rs, getrlimit(RLIMIT_NOFILE, &limit));
-	if (rs)
-		goto skip_limit;
-	if (limit.rlim_cur > FD_SETSIZE) {
-		limit.rlim_cur = FD_SETSIZE;
-		EINTRLOOP(rs, setrlimit(RLIMIT_NOFILE, &limit));
-	}
-skip_limit:;
-#endif
-#ifdef WIN32
-	if (!GetConsoleCP())
-		force_g = 1;
-#endif
-}
-#endif
-
-#if defined(WIN32)
+#if defined(WIN)
 
 void get_path_to_exe(void)
 {
@@ -866,7 +1050,7 @@ static inline int is_windows_program(unsigned char *prog_start, unsigned char *p
 
 #endif
 
-#if defined(WIN32) && defined(HAVE_CYGWIN_CONV_PATH)
+#if defined(WIN) && defined(HAVE_CYGWIN_CONV_PATH)
 
 unsigned char *os_conv_to_external_path(unsigned char *file, unsigned char *prog)
 {
@@ -883,7 +1067,7 @@ unsigned char *os_conv_to_external_path(unsigned char *file, unsigned char *prog
 	return new_path;
 }
 
-#elif defined(WIN32) && defined(HAVE_CYGWIN_CONV_TO_FULL_WIN32_PATH)
+#elif defined(WIN) && defined(HAVE_CYGWIN_CONV_TO_FULL_WIN32_PATH)
 
 unsigned char *os_conv_to_external_path(unsigned char *file, unsigned char *prog)
 {
@@ -898,7 +1082,7 @@ unsigned char *os_conv_to_external_path(unsigned char *file, unsigned char *prog
 	return stracpy(new_path);
 }
 
-#elif defined(WIN32) && defined(HAVE_UWIN_PATH)
+#elif defined(WIN) && defined(HAVE_UWIN_PATH)
 
 unsigned char *os_conv_to_external_path(unsigned char *file, unsigned char *prog)
 {
@@ -1058,9 +1242,6 @@ int exe(unsigned char *path, int fg)
 	if (!strcmp(cast_const_char path, DEFAULT_SHELL))
 		path = cast_uchar "";
 #endif
-#ifdef G
-	if (F && drv->exec) return drv->exec(path, fg);
-#endif
 #ifndef EXEC_IN_THREADS
 	do_signal(SIGPIPE, SIG_DFL);
 #ifdef SIGXFSZ
@@ -1075,6 +1256,9 @@ int exe(unsigned char *path, int fg)
 #ifdef SIGWINCH
 	do_signal(SIGWINCH, SIG_DFL);
 #endif
+#endif
+#ifdef G
+	if (F && drv->exec) return drv->exec(path, fg);
 #endif
 	return system(cast_const_char path);
 }
@@ -1131,7 +1315,7 @@ int resize_window(int x, int y)
 	return -1;
 }
 
-#elif defined(WIN32)
+#elif defined(WIN)
 
 int is_winnt(void)
 {
@@ -1212,12 +1396,16 @@ int exe(unsigned char *path, int fg)
 		}
 	}
 	/* UWin corrupts heap if we use threads and fork */
+	fd_lock();
 	pid = spawnl("/bin/sh", "/bin/sh", "-c", arg, NULL);
+	fd_unlock();
 #else
 #if 1		/* spawn breaks mouse, do this only in graphics mode */
 	if (F && is_winnt()) {
 		/* spawn crashes on Win98 */
+		fd_lock();
 		spawnlp(_P_WAIT, cast_const_char x1, cast_const_char x1, "/c", cast_const_char arg, NULL);
+		fd_unlock();
 		/*FreeConsole();*/
 		goto free_ret;
 	} else
@@ -1294,10 +1482,12 @@ int exe_on_background(unsigned char *path, unsigned char *del)
 		memset(&pi, 0, sizeof pi);
 		memset(&si, 0, sizeof si);
 		si.cb = sizeof si;
+		fd_lock();
 		if (CreateProcessA(cast_char x1, cast_char arg, NULL, NULL, FALSE, CREATE_NO_WINDOW | (is_winnt() ? DETACHED_PROCESS : 0), NULL, NULL, &si, &pi)) {
 			CloseHandle(pi.hProcess);
 			CloseHandle(pi.hThread);
 		}
+		fd_unlock();
 	} else {
 	/* We need to fork here so that we can close handles */
 		pid_t pid;
@@ -1327,9 +1517,9 @@ unsigned char *get_clipboard_text(struct terminal *term)
 	int rs;
 	int h;
 	if (!clipboard_support(term)) return stracpy(clipboard);
-	EINTRLOOP(h, open("/dev/clipboard", O_RDONLY));
+	/* O_TEXT doesn't work on clipboard handle */
+	h = c_open(cast_uchar "/dev/clipboard", O_RDONLY);
 	if (h == -1) return stracpy(clipboard);
-	set_bin(h);	/* O_TEXT doesn't work on clipboard handle */
 	str = init_str();
 	l = 0;
 	/* Don't use hard_read because UWin has buggy end-of-file signalling.
@@ -1357,9 +1547,9 @@ void set_clipboard_text(struct terminal *term, unsigned char *data)
 	if (clipboard) mem_free(clipboard);
 	clipboard = stracpy(data);
 	if (!clipboard_support(term)) return;
-	EINTRLOOP(h, open("/dev/clipboard", O_WRONLY));
+	/* O_TEXT doesn't work on clipboard handle */
+	h = c_open(cast_uchar "/dev/clipboard", O_WRONLY);
 	if (h == -1) return;
-	set_bin(h);	/* O_TEXT doesn't work on clipboard handle */
 	conv_data = init_str();
 	l = 0;
 	for (; *data; data++)
@@ -1439,7 +1629,9 @@ static void call_resize(unsigned char *x1, int x, int y)
 #if 0		/* spawn breaks mouse, don't use this */
 	if (is_winnt()) {
 		/* spawn crashes on Win98 */
+		fd_lock();
 		spawnlp(_P_WAIT, x1, x1, "/c", arg, NULL);
+		fd_unlock();
 		return;
 	} else
 #endif
@@ -1506,11 +1698,6 @@ int resize_window(int x, int y)
 
 #elif defined(OS2)
 
-#ifdef G
-static _fmutex fd_mutex;
-static unsigned char fd_mutex_init = 0;
-#endif
-
 int exe(unsigned char *path, int fg)
 {
 	int flags = P_SESSION;
@@ -1524,22 +1711,21 @@ int exe(unsigned char *path, int fg)
 	if (is_xterm()) flags |= P_BACKGROUND;
 #ifdef G
 	if (F) {
-		if (!fd_mutex_init) {
-			if (_fmutex_create(&fd_mutex, 0)) return -1;
-			fd_mutex_init = 1;
-		}
-		_fmutex_request(&fd_mutex, _FMR_IGNINT);
-		EINTRLOOP(old0, dup(0));
-		EINTRLOOP(old1, dup(1));
-		EINTRLOOP(old2, dup(2));
+		old0 = c_dup(0);
+		old1 = c_dup(1);
+		old2 = c_dup(2);
+		fd_lock();
 		if (old0 >= 0) EINTRLOOP(rs, close(0));
 		if (old1 >= 0) EINTRLOOP(rs, close(1));
 		if (old2 >= 0) EINTRLOOP(rs, close(2));
 		if (old0 >= 0) EINTRLOOP(rs, open("con", O_RDONLY));
 		if (old1 >= 0) EINTRLOOP(rs, open("con", O_WRONLY));
 		if (old2 >= 0) EINTRLOOP(rs, open("con", O_WRONLY));
-	}
+	} else
 #endif
+	{
+		fd_lock();
+	}
 	pid = spawnlp(flags, shell, shell, "/c", path, NULL);
 #ifdef G
 	if (F) {
@@ -1549,9 +1735,9 @@ int exe(unsigned char *path, int fg)
 		if (old0 >= 0) EINTRLOOP(rs, close(old0));
 		if (old1 >= 0) EINTRLOOP(rs, close(old1));
 		if (old2 >= 0) EINTRLOOP(rs, close(old2));
-		_fmutex_release(&fd_mutex);
 	}
 #endif
+	fd_unlock();
 	if (pid != -1) EINTRLOOP(rs, waitpid(pid, &ret, 0));
 	else ret = -1;
 	return ret;
@@ -1746,11 +1932,13 @@ int resize_window(int x, int y)
 struct tdata {
 	void (*fn)(void *, int);
 	int h;
+	int counted;
 	unsigned char data[1];
 };
 
-static void bgt(struct tdata *t)
+static void bgt(void *t_)
 {
+	struct tdata *t = t_;
 	int rs;
 	ignore_signals();
 	t->fn(t->data, t->h);
@@ -1758,14 +1946,6 @@ static void bgt(struct tdata *t)
 	EINTRLOOP(rs, close(t->h));
 	free(t);
 }
-
-#ifdef HAVE_PTHREADS
-static void *bgpt(struct tdata *t)
-{
-	bgt(t);
-	return NULL;
-}
-#endif
 
 #ifdef HAVE_ATHEOS_THREADS_H
 #include <atheos/threads.h>
@@ -1778,7 +1958,7 @@ static uint32 bgat(void *t)
 
 #endif
 
-#if defined(UNIX) || defined(OS2) || defined(WIN32) || defined(INTERIX) || defined(RISCOS) || defined(ATHEOS) || defined(SPAD)
+#if defined(UNIX) || defined(OS2) || defined(WIN) || defined(INTERIX) || defined(RISCOS) || defined(ATHEOS) || defined(SPAD)
 
 void terminate_osdep(void)
 {
@@ -1864,7 +2044,7 @@ void terminate_osdep(void)
 	release_sem(thr_sem);
 }
 
-int start_thread(void (*fn)(void *, int), void *ptr, int l)
+int start_thread(void (*fn)(void *, int), void *ptr, int l, int counted)
 {
 	int p[2];
 	struct tdata *t;
@@ -1878,8 +2058,9 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 	}
 	t->fn = fn;
 	t->h = p[1];
+	t->counted = counted;
 	memcpy(t->data, ptr, l);
-	if (start_thr((void (*)(void *))bgt, t, cast_uchar "links_thread") < 0)
+	if (start_thr(bgt, t, cast_uchar "links_thread") < 0)
 		goto err2;
 	return p[0];
 
@@ -1894,7 +2075,7 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 
 #elif defined(HAVE_BEGINTHREAD) && defined(OS2)
 
-int start_thread(void (*fn)(void *, int), void *ptr, int l)
+int start_thread(void (*fn)(void *, int), void *ptr, int l, int counted)
 {
 	int p[2];
 	struct tdata *t;
@@ -1908,8 +2089,9 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 	}
 	t->fn = fn;
 	t->h = p[1];
+	t->counted = counted;
 	memcpy(t->data, ptr, l);
-	if (_beginthread((void (*)(void *))bgt, NULL, 65536, t) == -1)
+	if (_beginthread(bgt, NULL, 65536, t) == -1)
 		goto err2;
 	return p[0];
 
@@ -1946,21 +2128,17 @@ static void input_thread(void *p)
 }
 #endif /* #ifdef HAVE__READ_KBD */
 
-#if defined(HAVE_MOUOPEN) && !defined(USE_GPM)
+#if defined(HAVE_MOUOPEN) && defined(HAVE_BEGINTHREAD) && !defined(USE_GPM)
 
 #define USING_OS2_MOUSE
 
-#ifdef HAVE_SYS_FMUTEX_H
-static _fmutex mouse_mutex;
-static unsigned char mouse_mutex_init = 0;
-#endif
 static int mouse_h = -1;
 
 struct os2_mouse_spec {
 	int p[2];
 	void (*fn)(void *, unsigned char *, int);
 	void *data;
-	unsigned char buffer[sizeof(struct event)];
+	unsigned char buffer[sizeof(struct links_event)];
 	int bufptr;
 	int terminate;
 };
@@ -2031,7 +2209,7 @@ static void mouse_thread(void *p)
 	A_DECL(MOUEVENTINFO, ms);
 	A_DECL(USHORT, rd);
 	A_DECL(USHORT, mask);
-	struct event ev;
+	struct links_event ev;
 	ignore_signals();
 	ev.ev = EV_MOUSE;
 	if (MouOpen(NULL, mh)) goto ret;
@@ -2046,13 +2224,9 @@ static void mouse_thread(void *p)
 	while (1) {
 		/*int w, ww;*/
 		if (MouReadEventQue(ms, rd, *mh)) break;
-#ifdef HAVE_SYS_FMUTEX_H
-		_fmutex_request(&mouse_mutex, _FMR_IGNINT);
-#endif
+		fd_lock();
 		if (!oms->terminate) mouse_draw_pointer(ms->col, ms->row);
-#ifdef HAVE_SYS_FMUTEX_H
-		_fmutex_release(&mouse_mutex);
-#endif
+		fd_unlock();
 		ev.x = ms->col;
 		ev.y = ms->row;
 		/*debug("status: %d %d %d", ms->col, ms->row, ms->fs);*/
@@ -2068,16 +2242,12 @@ static void mouse_thread(void *p)
 			ev.b = (status & BM_BUTT) | B_UP;
 			status = -1;
 		}
-		if (hard_write(oms->p[1], (unsigned char *)&ev, sizeof(struct event)) != sizeof(struct event)) break;
+		if (hard_write(oms->p[1], (unsigned char *)&ev, sizeof(struct links_event)) != sizeof(struct links_event)) break;
 	}
-#ifdef HAVE_SYS_FMUTEX_H
-	_fmutex_request(&mouse_mutex, _FMR_IGNINT);
-#endif
+	fd_lock();
 	mouse_h = -1;
 	MouClose(*mh);
-#ifdef HAVE_SYS_FMUTEX_H
-	_fmutex_release(&mouse_mutex);
-#endif
+	fd_unlock();
 	ret:
 	EINTRLOOP(rs, close(oms->p[1]));
 	/*free(oms);*/
@@ -2086,14 +2256,14 @@ static void mouse_thread(void *p)
 static void mouse_handle(struct os2_mouse_spec *oms)
 {
 	int r;
-	EINTRLOOP(r, (int)read(oms->p[0], oms->buffer + oms->bufptr, sizeof(struct event) - oms->bufptr));
+	EINTRLOOP(r, (int)read(oms->p[0], oms->buffer + oms->bufptr, sizeof(struct links_event) - oms->bufptr));
 	if (r <= 0) {
 		unhandle_mouse(oms);
 		return;
 	}
-	if ((oms->bufptr += r) == sizeof(struct event)) {
+	if ((oms->bufptr += r) == sizeof(struct links_event)) {
 		oms->bufptr = 0;
-		oms->fn(oms->data, oms->buffer, sizeof(struct event));
+		oms->fn(oms->data, oms->buffer, sizeof(struct links_event));
 	}
 }
 
@@ -2101,12 +2271,6 @@ void *handle_mouse(int cons, void (*fn)(void *, unsigned char *, int), void *dat
 {
 	struct os2_mouse_spec *oms;
 	if (is_xterm()) return NULL;
-#ifdef HAVE_SYS_FMUTEX_H
-	if (!mouse_mutex_init) {
-		if (_fmutex_create(&mouse_mutex, 0)) return NULL;
-		mouse_mutex_init = 1;
-	}
-#endif
 		/* This is never freed but it's allocated only once */
 	retry:
 	if (!(oms = malloc(sizeof(struct os2_mouse_spec)))) {
@@ -2124,27 +2288,23 @@ void *handle_mouse(int cons, void (*fn)(void *, unsigned char *, int), void *dat
 	}
 	if (_beginthread(mouse_thread, NULL, 0x10000, (void *)oms) == -1) {
 	}
-	set_handlers(oms->p[0], (void (*)(void *))mouse_handle, NULL, NULL, oms);
+	set_handlers(oms->p[0], (void (*)(void *))mouse_handle, NULL, oms);
 	return oms;
 }
 
 void unhandle_mouse(void *om)
 {
 	struct os2_mouse_spec *oms = om;
-	int rs;
 	want_draw();
 	oms->terminate = 1;
-	set_handlers(oms->p[0], NULL, NULL, NULL, NULL);
-	EINTRLOOP(rs, close(oms->p[0]));
+	close_socket(&oms->p[0]);
 	done_draw();
 }
 
 void want_draw(void)
 {
 	static int ansi = 0;
-#ifdef HAVE_SYS_FMUTEX_H
-	if (mouse_mutex_init) _fmutex_request(&mouse_mutex, _FMR_IGNINT);
-#endif
+	fd_lock();
 	if (!ansi) {
 		VioSetAnsi(1, 0);
 		ansi = 1;
@@ -2156,27 +2316,63 @@ void want_draw(void)
 
 void done_draw(void)
 {
-#ifdef HAVE_SYS_FMUTEX_H
-	if (mouse_mutex_init) _fmutex_release(&mouse_mutex);
-#endif
+	fd_unlock();
 }
 
 #endif /* if HAVE_MOUOPEN */
 
 #elif defined(HAVE_PTHREADS)
 
-#include <pthread.h>
-
 #ifdef OPENVMS
 #define THREAD_NEED_STACK_SIZE		65536
 int vms_thread_high_priority = 0;
 #endif
 
-int start_thread(void (*fn)(void *, int), void *ptr, int l)
+static unsigned thread_count = 0;
+
+static inline void reset_thread_count(void)
 {
-#ifdef THREAD_NEED_STACK_SIZE
+	fd_lock();
+	thread_count = 0;
+	fd_unlock();
+}
+
+static void inc_thread_count(void)
+{
+	fd_lock();
+	thread_count++;
+	fd_unlock();
+}
+
+static void dec_thread_count(void)
+{
+	fd_lock();
+	if (!thread_count)
+		internal("thread_count underflow");
+	thread_count--;
+	fd_unlock();
+}
+
+static inline unsigned get_thread_count(void)
+{
+	unsigned val;
+	fd_lock();
+	val = thread_count;
+	fd_unlock();
+	return val;
+}
+
+static void *bgpt(void *t)
+{
+	int counted = ((struct tdata *)t)->counted;
+	bgt(t);
+	if (counted) dec_thread_count();
+	return NULL;
+}
+
+int start_thread(void (*fn)(void *, int), void *ptr, int l, int counted)
+{
 	pthread_attr_t attr;
-#endif
 	pthread_t thread;
 	struct tdata *t;
 	int p[2];
@@ -2190,8 +2386,8 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 	}
 	t->fn = fn;
 	t->h = p[1];
+	t->counted = counted;
 	memcpy(t->data, ptr, l);
-#ifdef THREAD_NEED_STACK_SIZE
 	retry2:
 	if (pthread_attr_init(&attr)) {
 		if (out_of_memory(0, NULL, 0))
@@ -2199,11 +2395,20 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 		goto err2;
 	}
 	retry3:
-	if (pthread_attr_setstacksize(&attr, THREAD_NEED_STACK_SIZE)) {
+	if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED)) {
 		if (out_of_memory(0, NULL, 0))
 			goto retry3;
 		goto err3;
 	}
+#ifdef THREAD_NEED_STACK_SIZE
+	retry4:
+	if (pthread_attr_setstacksize(&attr, THREAD_NEED_STACK_SIZE)) {
+		if (out_of_memory(0, NULL, 0))
+			goto retry4;
+		goto err3;
+	}
+#endif
+#ifdef OPENVMS
 	if (vms_thread_high_priority) {
 		struct sched_param param;
 		memset(&param, 0, sizeof param);
@@ -2223,20 +2428,18 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 				goto err3;
 		}
 	}
-	if (pthread_create(&thread, &attr, (void *(*)(void *))bgpt, t))
-		goto err3;
-	pthread_attr_destroy(&attr);
-#else
-	if (pthread_create(&thread, NULL, (void *(*)(void *))bgpt, t))
-		goto err3;
 #endif
+	if (counted) inc_thread_count();
+	if (pthread_create(&thread, &attr, bgpt, t)) {
+		if (counted) dec_thread_count();
+		goto err3;
+	}
+	pthread_attr_destroy(&attr);
 	return p[0];
 
 	err3:
-#ifdef THREAD_NEED_STACK_SIZE
 	pthread_attr_destroy(&attr);
 	err2:
-#endif
 	free(t);
 	err1:
 	EINTRLOOP(rs, close(p[0]));
@@ -2248,7 +2451,7 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 
 #include <atheos/threads.h>
 
-int start_thread(void (*fn)(void *, int), void *ptr, int l)
+int start_thread(void (*fn)(void *, int), void *ptr, int l, int counted)
 {
 	int p[2];
 	int rs;
@@ -2263,6 +2466,7 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 	}
 	t->fn = fn;
 	t->h = p[1];
+	t->counted = counted;
 	memcpy(t->data, ptr, l);
 	if ((f = spawn_thread("links_lookup", bgat, 0, 0, t)) == -1)
 		goto err2;
@@ -2279,7 +2483,7 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 
 #elif defined(DOS)
 
-int start_thread(void (*fn)(void *, int), void *ptr, int l)
+int start_thread(void (*fn)(void *, int), void *ptr, int l, int counted)
 {
 	int p[2];
 	int rs;
@@ -2291,7 +2495,7 @@ int start_thread(void (*fn)(void *, int), void *ptr, int l)
 
 #else /* HAVE_BEGINTHREAD */
 
-int start_thread(void (*fn)(void *, int), void *ptr, int l)
+int start_thread(void (*fn)(void *, int), void *ptr, int l, int counted)
 {
 	int p[2];
 	pid_t f;
@@ -2433,15 +2637,16 @@ static void gpm_mouse_in(struct gpm_mouse_spec *gms)
 {
 	int g;
 	Gpm_Event gev;
-	struct event ev;
+	struct links_event ev;
+	set_handlers(gms->h, NULL, NULL, NULL);
 	save_gpm_signals();
 	g = Gpm_GetEvent(&gev);
 	restore_gpm_signals();
 	if (g <= 0) {
-		set_handlers(gms->h, NULL, NULL, NULL, NULL);
 		gms->h = -1;
 		return;
 	}
+	set_handlers(gms->h, (void (*)(void *))gpm_mouse_in, NULL, gms);
 	ev.ev = EV_MOUSE;
 	ev.x = gev.x - 1;
 	ev.y = gev.y - 1;
@@ -2455,7 +2660,7 @@ static void gpm_mouse_in(struct gpm_mouse_spec *gms)
 	else if ((int)gev.type & GPM_UP) ev.b |= B_UP;
 	else if ((int)gev.type & GPM_DRAG) ev.b |= B_DRAG;
 	else return;
-	gms->fn(gms->data, (unsigned char *)&ev, sizeof(struct event));
+	gms->fn(gms->data, (unsigned char *)&ev, sizeof(struct links_event));
 }
 
 void *handle_mouse(int cons, void (*fn)(void *, unsigned char *, int), void *data)
@@ -2475,14 +2680,14 @@ void *handle_mouse(int cons, void (*fn)(void *, unsigned char *, int), void *dat
 	gms->h = h;
 	gms->fn = fn;
 	gms->data = data;
-	set_handlers(h, (void (*)(void *))gpm_mouse_in, NULL, NULL, gms);
+	set_handlers(h, (void (*)(void *))gpm_mouse_in, NULL, gms);
 	return gms;
 }
 
 void unhandle_mouse(void *h)
 {
 	struct gpm_mouse_spec *gms = h;
-	if (gms->h != -1) set_handlers(gms->h, NULL, NULL, NULL, NULL);
+	if (gms->h != -1) set_handlers(gms->h, NULL, NULL, NULL);
 	save_gpm_signals();
 	Gpm_Close();
 	restore_gpm_signals();
@@ -2507,7 +2712,7 @@ void unhandle_mouse(void *data) { }
 #endif /* #ifdef USE_GPM */
 
 
-#if defined(WIN32) || defined(INTERIX)
+#if defined(WIN) || defined(INTERIX)
 
 static int is_remote_connection(void)
 {
@@ -2534,7 +2739,7 @@ int get_system_env(void)
 	return 0;
 }
 
-#elif defined(WIN32)
+#elif defined(WIN)
 
 int get_system_env(void)
 {
@@ -2629,7 +2834,7 @@ static int open_in_new_fullscreen(struct terminal *term, unsigned char *exe, uns
 }
 #endif
 
-#ifdef WIN32
+#ifdef WIN
 static int open_in_new_win32(struct terminal *term, unsigned char *exe, unsigned char *param)
 {
 	exec_new_links(term, cast_uchar "", exe, param);
@@ -2677,9 +2882,8 @@ static int open_in_new_g(struct terminal *term, unsigned char *exe, unsigned cha
 		if (*param == ' ') *param++ = 0;
 	}
 	url = param;
-	if (!(info = create_session_info(base, url, target, &len)))
-		return -1;
-	return attach_g_terminal(info, len);
+	info = create_session_info(base, url, target, &len);
+	return attach_g_terminal(term->cwd, info, len);
 }
 #endif
 
@@ -2696,7 +2900,7 @@ static struct {
 	{ENV_OS2VIO, open_in_new_vio, TEXT_(T_WINDOW), TEXT_(T_HK_WINDOW)},
 	{ENV_OS2VIO, open_in_new_fullscreen, TEXT_(T_FULL_SCREEN), TEXT_(T_HK_FULL_SCREEN)},
 #endif
-#ifdef WIN32
+#ifdef WIN
 	{ENV_WIN32, open_in_new_win32, TEXT_(T_WINDOW), TEXT_(T_HK_WINDOW)},
 #endif
 #ifdef INTERIX
@@ -2735,7 +2939,7 @@ struct open_in_new *get_open_in_new(int environment)
 
 int can_resize_window(struct terminal *term)
 {
-#if defined(OS2) || defined(WIN32)
+#if defined(OS2) || defined(WIN)
 	if (!strncmp(cast_const_char term->term, "xterm", 5)) return 0;
 	if (term->environment & (ENV_OS2VIO | ENV_WIN32)) return 1;
 #endif
@@ -2747,7 +2951,7 @@ int can_open_os_shell(int environment)
 #ifdef OS2
 	if (environment & ENV_XWIN) return 0;
 #endif
-#ifdef WIN32
+#ifdef WIN
 	if (!F && !(environment & ENV_WIN32)) return 0;
 #endif
 #ifdef BEOS
@@ -2774,17 +2978,65 @@ void os_seed_random(unsigned char **pool, unsigned *pool_size)
 }
 #endif
 
+#if defined(WIN)
+int os_send_fg_cookie(int h)
+{
+	DWORD pid;
+	pid = GetCurrentProcessId();
+	if (hard_write(h, (unsigned char *)&pid, sizeof pid) != sizeof pid)
+		return -1;
+	return 0;
+}
+int os_receive_fg_cookie(int h)
+{
+	DWORD pid;
+	BOOL (WINAPI *fn_AllowSetForegroundWindow)(DWORD);
+	if (hard_read(h, (unsigned char *)&pid, sizeof pid) != sizeof pid)
+		return -1;
+	fn_AllowSetForegroundWindow = (BOOL (WINAPI *)(DWORD))GetProcAddress(GetModuleHandleA("user32.dll"), "AllowSetForegroundWindow");
+	if (fn_AllowSetForegroundWindow)
+		fn_AllowSetForegroundWindow(pid);
+	return 0;
+}
+#else
+int os_send_fg_cookie(int h)
+{
+	return 0;
+}
+int os_receive_fg_cookie(int h)
+{
+	return 0;
+}
+#endif
+
 void os_detach_console(void)
 {
-#if defined(WIN32)
+#if defined(WIN)
 	if (is_winnt())
 		FreeConsole();
 #endif
 #if !defined(NO_FORK_ON_EXIT)
 	{
 		pid_t rp;
+	/* Intel and PathScale handle fork gracefully */
+#if !defined(__ICC) && !defined(__PATHSCALE__)
+		disable_openmp = 1;
+#endif
 		EINTRLOOP(rp, fork());
-		if (rp > 0) _exit(0);
+		if (!rp) {
+			reinit_child();
+#if defined(HAVE_PTHREADS)
+			reset_thread_count();
+#endif
+		}
+		if (rp > 0) {
+#if defined(HAVE_PTHREADS)
+			while (get_thread_count()) {
+				portable_sleep(1000);
+			}
+#endif
+			_exit(0);
+		}
 	}
 #endif
 }

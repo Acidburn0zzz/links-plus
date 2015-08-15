@@ -2,7 +2,7 @@
 set -e
 cp ../links-current/links*.nsi ../links-current/COPYING ../links-current/BRAILLE_HOWTO ../links-current/KEYS ../links-current/README .
 unix2dos COPYING BRAILLE_HOWTO KEYS README
-if which gcc-4; then
+if which gcc-4 2>/dev/null; then
 	CC=gcc-4
 else
 	CC=gcc
@@ -44,6 +44,8 @@ export LDFLAGS
 mkdir -p links-graphics
 cd links-graphics
 if [ ! -f config.h -o ! -f Makefile ]; then
+	CPPFLAGS="-DUSE_WIN32_HEAP"
+	export CPPFLAGS
 	../../links-current/configure --disable-utf8 --enable-graphics --without-x --enable-debuglevel=0
 fi
 make -j12 LDFLAGS="-mwindows"

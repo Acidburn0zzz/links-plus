@@ -77,7 +77,7 @@ static int dos_mouse_last_y;
 static int dos_mouse_last_button;
 static ttime dos_mouse_time;
 
-static struct event *dos_mouse_queue = DUMMY;
+static struct links_event *dos_mouse_queue = DUMMY;
 static int dos_mouse_queue_n;
 
 static void (*txt_mouse_handler)(void *, unsigned char *, int) = NULL;
@@ -150,7 +150,7 @@ static void dos_mouse_enqueue(int x, int y, int b)
 		dos_mouse_queue_n--;
 		goto set_last;
 	}
-	dos_mouse_queue = mem_realloc(dos_mouse_queue, (dos_mouse_queue_n + 1) * sizeof(struct event));
+	dos_mouse_queue = mem_realloc(dos_mouse_queue, (dos_mouse_queue_n + 1) * sizeof(struct links_event));
 set_last:
 	dos_mouse_queue[dos_mouse_queue_n].ev = EV_MOUSE;
 	dos_mouse_queue[dos_mouse_queue_n].x = x;
@@ -266,11 +266,11 @@ static int dos_mouse_event(void)
 {
 	if (dos_mouse_queue_n) {
 		if (!F && txt_mouse_handler) {
-			struct event *q = dos_mouse_queue;
+			struct links_event *q = dos_mouse_queue;
 			int ql = dos_mouse_queue_n;
 			dos_mouse_queue = DUMMY;
 			dos_mouse_queue_n = 0;
-			txt_mouse_handler(txt_mouse_data, (unsigned char *)(void *)q, ql * sizeof(struct event));
+			txt_mouse_handler(txt_mouse_data, (unsigned char *)(void *)q, ql * sizeof(struct links_event));
 			mem_free(q);
 			return 1;
 		}
@@ -778,9 +778,10 @@ void init_os(void)
 	init_seq_len = strlen(cast_const_char init_seq);
 
 	/* preload the packet driver */
-	EINTRLOOP(s, socket(PF_INET, SOCK_STREAM, IPPROTO_TCP));
-	if (s >= 0)
-		close(s);
+	s = c_socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (s >= 0) {
+		EINTRLOOP(rs, close(s));
+	}
 
 	tcp_cbreak(1);
 

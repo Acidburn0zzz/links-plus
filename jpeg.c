@@ -23,6 +23,16 @@ struct jerr_struct{
 	jmp_buf setjmp_buffer;
 };
 
+struct jpg_decoder{
+	struct jpeg_decompress_struct *cinfo;
+	struct jerr_struct *jerr;
+	unsigned char state; /* 0: header 1: start 2: scanlines 3: end 4,5: also
+			something */
+	int skip_bytes;
+	unsigned char *jdata;
+	unsigned char *scanlines[16];
+};
+
 static struct jerr_struct *global_jerr;
 static struct jpeg_decompress_struct *global_cinfo;
 static int mesg_unsup_emitted = 0; /* Defaults to zero at program startup and once
@@ -380,6 +390,15 @@ susp0:
 decoder_ended:
 		img_end(cimg);
 	}
+}
+
+void jpeg_destroy_decoder(struct cached_image *cimg)
+{
+	struct jpg_decoder *deco = (struct jpg_decoder *)cimg->decoder;
+	jpeg_destroy_decompress(deco->cinfo);
+	mem_free(deco->cinfo);
+	mem_free(deco->jerr);
+	if (deco->jdata) mem_free(deco->jdata);
 }
 
 void add_jpeg_version(unsigned char **s, int *l)

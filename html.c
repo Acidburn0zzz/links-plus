@@ -907,23 +907,12 @@ static void put_link_line(unsigned char *prefix, unsigned char *linkname, unsign
 static void html_span(unsigned char *a)
 {
 	unsigned char *al;
-	/*int lb = 0;*/
 	if ((al = get_attr_val(a, cast_uchar "class"))) {
 		if (!strcmp(cast_const_char al, "line-number"))
-			/*lb = 1, */ln_break(1);
+			ln_break(1);
+
 		mem_free(al);
 	}
-#if 0
-	if (!lb && (al = get_attr_val(a, cast_uchar "id"))) {	/* github hack */
-		unsigned char *al2;
-		if (al[0] == 'L' && (al2 = get_attr_val(a, cast_uchar "rel"))) {
-			if (al2[0] == '#' && !strcmp(cast_const_char al, cast_const_char(al2 + 1)))
-				lb = 1, ln_break(1);
-			mem_free(al2);
-		}
-		mem_free(al);
-	}
-#endif
 }
 
 static void html_bold(unsigned char *a)
@@ -981,7 +970,7 @@ static void html_a(unsigned char *a)
 			format_.target = stracpy(format_.target_base);
 		}
 		/*format_.attr ^= AT_BOLD;*/
-		format_.attr ^= AT_UNDERLINE;
+		format_.attr |= AT_UNDERLINE;
 		set_link_attr();
 	} else if (!ev) kill_html_stack_item(&html_top);
 	if ((al = get_attr_val(a, cast_uchar "name"))) {
@@ -1385,7 +1374,8 @@ static void html_div(unsigned char *a)
 {
 	unsigned char *al;
 	if ((al = get_attr_val(a, cast_uchar "class"))) {
-		if (!strcmp(cast_const_char al, "commit-msg")) {
+		if (!strcmp(cast_const_char al, "commit-msg") ||
+		    !strncmp(cast_const_char al, "diff", 4) /* gitweb hack */) {
 			format_.attr |= AT_FIXED;
 			par_format.align = AL_NO;
 		}
@@ -2574,18 +2564,22 @@ static void html_link(unsigned char *a)
 	}
 	if (!name)
 		name = stracpy(url);
-	if (!strcasecmp(cast_const_char name, "stylesheet") ||
-	    !strcasecmp(cast_const_char name, "alternate stylesheet") ||
-	    !strcasecmp(cast_const_char name, "made") ||
-	    !strcasecmp(cast_const_char name, "icon") ||
-	    !strcasecmp(cast_const_char name, "shortcut icon") ||
+	if (
 	    !casecmp(name, cast_uchar "apple-touch-icon", 16) ||
+	    !casecmp(name, cast_uchar "schema", 6) ||
+	    !strcasecmp(cast_const_char name, "Edit-Time-Data") ||
+	    !strcasecmp(cast_const_char name, "File-List") ||
+	    !strcasecmp(cast_const_char name, "alternate stylesheet") ||
+	    !strcasecmp(cast_const_char name, "generator-home") ||
+	    !strcasecmp(cast_const_char name, "https://github.com/WP-API/WP-API") ||
+	    !strcasecmp(cast_const_char name, "icon") ||
+	    !strcasecmp(cast_const_char name, "made") ||
 	    !strcasecmp(cast_const_char name, "meta") ||
 	    !strcasecmp(cast_const_char name, "pingback") ||
-	    !strcasecmp(cast_const_char name, "File-List") ||
-	    !strcasecmp(cast_const_char name, "Edit-Time-Data") ||
-	    !strcasecmp(cast_const_char name, "generator-home") ||
-	    !casecmp(name, cast_uchar "schema", 6)) goto skip;
+	    !strcasecmp(cast_const_char name, "preconnect") ||
+	    !strcasecmp(cast_const_char name, "shortcut icon") ||
+	    !strcasecmp(cast_const_char name, "stylesheet") ||
+	    0) goto skip;
 	if (!strcasecmp(cast_const_char name, "prefetch") ||
 	    !strcasecmp(cast_const_char name, "dns-prefetch") ||
 	    !strcasecmp(cast_const_char name, "prerender")) {

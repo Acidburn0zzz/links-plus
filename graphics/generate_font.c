@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <string.h>
 #include <ctype.h>
 #include <png.h>
 
@@ -42,20 +43,37 @@ int file_select(const struct dirent * entry)
 {
 
 	const char *s=entry->d_name;
+	char *ext;
+	unsigned long int codepoint;
 	FILE *f;
 
-	if (strlen(s)!=8) return 0;
-	if (!((s[0]>='0'&&s[0]<='9')||(tolower(s[0])>='a'&&tolower(s[0])<='f'))) return 0;
-	if (!((s[1]>='0'&&s[1]<='9')||(tolower(s[1])>='a'&&tolower(s[1])<='f'))) return 0;
-	if (!((s[2]>='0'&&s[2]<='9')||(tolower(s[2])>='a'&&tolower(s[2])<='f'))) return 0;
-	if (!((s[3]>='0'&&s[3]<='9')||(tolower(s[3])>='a'&&tolower(s[3])<='f'))) return 0;
-	if (s[4]!='.'||tolower(s[5])!='p'||tolower(s[6])!='n'||tolower(s[7])!='g') return 0;
+	codepoint= strtoul(s, &ext, 16);
+	if (codepoint > 0x10FFFFUL || strcasecmp(ext, ".png"))
+		return 0;
 	f=fopen(s,"r");
 	if (!f) return 0; /* If it can't be open as a file then it's probably
 		           * a directory
 			   */
 	fclose(f);
 	return 1;
+}
+
+int hexstrsort(const struct dirent **a, const struct dirent **b)
+{
+	const char *aname, *bname;
+	int diff;
+
+	for( aname= (**a).d_name; *aname == '0'; ++aname );
+	for( bname= (**b).d_name; *bname == '0'; ++bname );
+	diff= (int)strlen(aname) - (int)strlen(bname);
+	if( diff ) return diff;
+	while( *aname ) {
+		diff= (int)tolower(*aname) - (int)tolower(*bname);
+		if( diff ) return diff;
+		++aname;
+		++bname;
+	}
+	return 0;
 }
 
 /* If the directory name has bad structure (must have 4 dashes in the name),
@@ -247,8 +265,8 @@ two:
 }
 
 
-/* name:        path to file to process
- * output:      where to put the C code
+/* name:		path to file to process
+ * output:		where to put the C code
  * char_number: number of the char. -1 means do not write anything into the tables.
 */
 void process_file(unsigned char *name, FILE *output, int char_number)
@@ -257,7 +275,6 @@ void process_file(unsigned char *name, FILE *output, int char_number)
 	int c;
 	int letter_code=letter_code;
 	int count=0;
-	unsigned char btr[5];
 	int forbidden_0_to_7;
 
 	f=fopen((const char *)name,"r");
@@ -268,9 +285,7 @@ void process_file(unsigned char *name, FILE *output, int char_number)
 		exit(1);
 	}
 	if (char_number>=0){
-		memcpy(btr,name,4);
-		btr[4]=0;
-		letter_code=strtoul((const char *)btr,NULL,16);
+		letter_code=strtoul((const char *)name,NULL,16);
 		fonts[n_fonts-1].letters[char_number].begin=stamp;
 	}
 	char_pos = 38;
@@ -297,7 +312,7 @@ void process_letters(FILE *output)
 	struct dirent **ptr;
 	int nr,a;
 
-	nr=scandir(".",&namelist,file_select,alphasort);
+	nr=scandir(".",&namelist,file_select,hexstrsort);
 	if (nr<0){
 		perror(PROGNAME);
 		exit(1);
@@ -334,12 +349,12 @@ int dir_select(const struct dirent *directory_entry)
 /* build_font_table:
  * scans the font directory
  * for each directory:
- *  * renews font description structures
- *  * scans the images
- *  * builds a binary search array
- *  * writes the font structure into the ../font_inc.c
- *  * releases font description structures
- *  Also prints the font_data byte table.
+ *	* renews font description structures
+ *	* scans the images
+ *	* builds a binary search array
+ *	* writes the font structure into the ../font_inc.c
+ *	* releases font description structures
+ *	Also prints the font_data byte table.
  */
 void build_font_table(FILE *output)
 {

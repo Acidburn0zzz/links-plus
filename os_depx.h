@@ -223,6 +223,8 @@ int dos_select(int n, fd_set *rs, fd_set *ws, fd_set *es, struct timeval *t, int
 
 #if defined(O_SIZE) && defined(__EMX__)
 #define HAVE_OPEN_PREALLOC
+#elif (defined(HAVE_FALLOCATE) || defined(HAVE_POSIX_FALLOCATE)) && !defined(OPENVMS)
+#define HAVE_OPEN_PREALLOC
 #endif
 
 #if defined(__WATCOMC__) && defined(_WCRTLINK)

@@ -30,6 +30,11 @@
 
 /* Decoder structs */
 
+struct png_decoder{
+	png_structp png_ptr;
+	png_infop info_ptr;
+};
+
 /* Warning for from-web PNG images */
 static void img_my_png_warning(png_structp a, png_const_charp b)
 {
@@ -247,6 +252,12 @@ void png_restart(struct cached_image *cimg, unsigned char *data, int length)
 	}
 	png_process_data(png_ptr, info_ptr, data, length);
 	if (end_callback_hit) img_end(cimg);
+}
+
+void png_destroy_decoder(struct cached_image *cimg)
+{
+	struct png_decoder *decoder = (struct png_decoder *)cimg->decoder;
+	png_destroy_read_struct(&decoder->png_ptr, &decoder->info_ptr, NULL);
 }
 
 void add_png_version(unsigned char **s, int *l)

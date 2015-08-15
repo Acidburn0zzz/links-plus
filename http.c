@@ -220,22 +220,15 @@ static void http_send_header(struct connection *c)
 	}
 
 	proxy = upcase(c->url[0]) == 'P';
-	host = !proxy ? c->url : get_url_data(c->url);
+	host = remove_proxy_prefix(c->url);
 	set_connection_timeout(c);
 	info = mem_calloc(sizeof(struct http_connection_info));
 	c->info = info;
 #ifdef HAVE_SSL
-	//info->https_forward = !c->ssl && proxy && host && !casecmp(host, cast_uchar "https://", 8);
 	info->https_forward = !c->tls && proxy && host && !casecmp(host, cast_uchar "https://", 8);
-	//if (c->ssl) proxy = 0;
 	if (c->tls) proxy = 0;
 #endif
-	info->send_close = info->https_forward || http10 || (post && http_options.bug_post_no_keepalive)
-#ifdef HAVE_SSL
-		|| c->tls
-		//|| c->ssl
-#endif
-		;
+	info->send_close = info->https_forward || http10 || (post && http_options.bug_post_no_keepalive);
 	hdr = init_str();
 	if (!host) {
 		http_bad_url:
@@ -411,6 +404,12 @@ static void add_referer(unsigned char **hdr, int *l, unsigned char *url, unsigne
 			if ((h = get_host_name(url))) {
 				if ((j = get_host_name(prev_url))) {
 					if (!strcasecmp(cast_const_char h, cast_const_char j)) brk = 0;
+					else if (!strcasecmp(cast_const_char h, "imageproxy.jxs.cz")) {
+						int l = (int)strlen(cast_const_char j);
+						int q = (int)strlen(".blog.cz");
+						if (l > q && !strcasecmp(cast_const_char (j + l - q), ".blog.cz")) brk = 0;
+						else if (!strcasecmp(cast_const_char j, "blog.cz")) brk = 0;
+					}
 					mem_free(j);
 				}
 				mem_free(h);
@@ -508,7 +507,7 @@ static void add_accept_encoding(unsigned char **hdr, int *l, unsigned char *url,
 #if defined(HAVE_LZMA) && !defined(DOS)
 		if (!SCRUB_HEADERS && !(info->bl_flags & BL_NO_BZIP2)) {
 			if (*l != l1) add_to_str(hdr, l, cast_uchar ", ");
-			add_to_str(hdr, l, cast_uchar "lzma,lzma2");
+			add_to_str(hdr, l, cast_uchar "lzma, lzma2");
 		}
 #endif
 		if (*l != l1) add_to_str(hdr, l, cast_uchar "\r\n");
@@ -791,7 +790,7 @@ static void read_http_data(struct connection *c, struct read_buffer *rb)
 			if (!info->chunk_remaining && rb->len >= 1) {
 				if (rb->data[0] == 10) kill_buffer_data(rb, 1);
 				else {
-					if (rb->data[0] != 13 || (rb->len >= 2 && rb->data[1] != 10)) {
+					if (rb->data[0] != 13 || (rb->len >= 2 && ((unsigned char *)rb->data)[1] != 10)) {
 						setcstate(c, S_HTTP_ERROR);
 						abort_connection(c);
 						return;
@@ -815,11 +814,11 @@ static int get_header(struct read_buffer *rb)
 	if (rb->len <= 0) return 0;
 	if (rb->data[0] != 'H') return -2;
 	if (rb->len <= 1) return 0;
-	if (rb->data[1] != 'T') return -2;
+	if (((unsigned char *)rb->data)[1] != 'T') return -2;
 	if (rb->len <= 2) return 0;
-	if (rb->data[2] != 'T') return -2;
+	if (((unsigned char *)rb->data)[2] != 'T') return -2;
 	if (rb->len <= 3) return 0;
-	if (rb->data[3] != 'P') return -2;
+	if (((unsigned char *)rb->data)[3] != 'P') return -2;
 	for (i = 0; i < rb->len; i++) {
 		unsigned char a = rb->data[i];
 		if (/*a < ' ' && a != 10 && a != 13*/ !a) return -1;
@@ -846,7 +845,7 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 	struct cache_entry *e;
 	int previous_http_code;
 	struct http_connection_info *info;
-	unsigned char *host = upcase(c->url[0]) != 'P' ? c->url : get_url_data(c->url);
+	unsigned char *host = remove_proxy_prefix(c->url);
 	set_connection_timeout(c);
 	info = c->info;
 	if (rb->close == 2) {
@@ -897,7 +896,7 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 	}
 	ch = head;
 	while ((cookie = parse_http_header(ch, cast_uchar "Set-Cookie", &ch))) {
-		unsigned char *host = upcase(c->url[0]) != 'P' ? c->url : get_url_data(c->url);
+		unsigned char *host = remove_proxy_prefix(c->url);
 		set_cookie(NULL, host, cookie);
 		mem_free(cookie);
 	}
@@ -918,7 +917,6 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		mem_free(c->info);
 		c->info = 0;
 		c->tls = DUMMY;
-		//c->ssl = DUMMY;
 		continue_connection(c, &c->sock1, http_send_header);
 		return;
 	}
@@ -1001,7 +999,6 @@ static void http_got_header(struct connection *c, struct read_buffer *rb)
 		mem_free(d);
 	}
 #ifdef HAVE_SSL
-	//if (c->ssl) {
 	if (c->tls) {
 		int l = 0;
 		if (e->ssl_info) mem_free(e->ssl_info);

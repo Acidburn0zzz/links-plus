@@ -4,7 +4,7 @@ if [ "$1" = dbg ]; then
 	export CFLAGS
 	./configure --enable-debuglevel --enable-graphics
 elif [ "$1" = lite ]; then
-	CFLAGS="-mpreferred-stack-boundary=2 -march=i386 -Os -fomit-frame-pointer -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations"
+	CFLAGS="-march=i386 -Os -fomit-frame-pointer -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations"
 	export CFLAGS
 	./configure --disable-graphics --without-ssl --without-lzma
 else

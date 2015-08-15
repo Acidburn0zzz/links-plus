@@ -52,7 +52,7 @@ static IDirectFBDisplayLayer *layer       = NULL;
 static IDirectFBSurface      *arrow       = NULL;
 static IDirectFBEventBuffer  *events      = NULL;
 static DFBSurfacePixelFormat  pixelformat = DSPF_UNKNOWN;
-static int                    event_timer = -1;
+static struct timer *event_timer = NULL;
 
 
 static inline void directfb_set_color  (IDirectFBSurface *surface, long color);
@@ -443,8 +443,10 @@ struct graphics_driver directfb_driver =
   directfb_init_device,
   directfb_shutdown_device,
   directfb_shutdown_driver,
-  dummy_emergency_shutdown,
+  NULL,
+  NULL,
   directfb_get_driver_param,
+  NULL,
   NULL,
   NULL,
   directfb_get_empty_bitmap,

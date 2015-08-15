@@ -75,8 +75,8 @@ static void grx_set_clip(void)
 static void grx_key_in(void *p, unsigned char *ev_, int size)
 {
 	int vd;
-	struct event *ev = (struct event *)(void *)ev_;
-	if (size != sizeof(struct event)) return;
+	struct links_event *ev = (struct links_event *)(void *)ev_;
+	if (size != sizeof(struct links_event)) return;
 	if (ev->ev == EV_ABORT) terminate_loop = 1;
 	if (ev->ev != EV_KBD) return;
 	if ((ev->y & KBD_ALT) && ev->x >= '0' && ev->x <= '9') {
@@ -535,7 +535,9 @@ struct graphics_driver grx_driver = {
 	shutdown_virtual_device,
 	grx_shutdown_driver,
 	grx_emergency_shutdown,
+	NULL,
 	grx_get_driver_param,
+	NULL,
 	NULL,
 	NULL,
 	grx_get_empty_bitmap,

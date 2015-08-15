@@ -125,9 +125,10 @@ static void selection_request(XEvent *event);
 
 static int x_fd;    /* x socket */
 static Display *x_display = NULL;   /* display */
+static unsigned char *x_display_string = NULL;
 static int x_screen;   /* screen */
 static int x_display_height,x_display_width;   /* screen dimensions */
-static unsigned long x_black_pixel,x_white_pixel;  /* white and black pixel */
+static unsigned long x_black_pixel;  /* black pixel */
 static int x_depth,x_bitmap_bpp;   /* bits per pixel and bytes per pixel */
 static int x_bitmap_scanline_pad; /* bitmap scanline_padding in bytes */
 static int x_colors;  /* colors in the palette (undefined when there's no palette) */
@@ -199,16 +200,7 @@ static inline struct window_info *get_window_info(struct graphics_device *gd)
 
 static void x_wait_for_event(void)
 {
-	fd_set rfds;
-	int rs;
-
-	if (x_fd >= (int)FD_SETSIZE) {
-		fatal_exit("too big handle %d", x_fd);
-	}
-
-	FD_ZERO(&rfds);
-	FD_SET(x_fd, &rfds);
-	EINTRLOOP(rs, select(x_fd+1, &rfds, NULL, NULL, NULL));
+	can_read_timeout(x_fd, -1);
 }
 
 static void x_process_events(void *data);
@@ -577,6 +569,7 @@ static void x_free_hash_table(void)
 	}
 
 	if (x_driver_param) mem_free(x_driver_param), x_driver_param = NULL;
+	if (x_display_string) mem_free(x_display_string), x_display_string = NULL;
 }
 
 
@@ -1046,6 +1039,11 @@ static unsigned char * x_get_driver_param(void)
 	return x_driver_param;
 }
 
+static unsigned char *x_get_af_unix_name(void)
+{
+	return x_display_string;
+}
+
 #ifdef X_INPUT_METHOD
 static XIC x_open_xic(Window w);
 #endif
@@ -1073,7 +1071,7 @@ static unsigned char * x_init_driver(unsigned char *param, unsigned char *displa
 	}
 #endif
 	x_input_encoding=-1;
-#if defined(HAVE_NL_LANGINFO) && defined(HAVE_LANGINFO_H) && defined(CODESET) && !defined(WIN32) && !defined(INTERIX)
+#if defined(HAVE_NL_LANGINFO) && defined(HAVE_LANGINFO_H) && defined(CODESET) && !defined(WIN) && !defined(INTERIX)
 	{
 		unsigned char *cp;
 		cp = cast_uchar nl_langinfo(CODESET);
@@ -1100,6 +1098,7 @@ static unsigned char * x_init_driver(unsigned char *param, unsigned char *displa
 	   --- rather open links on svgalib or framebuffer console */
 	if (!display) display = cast_uchar ":0.0";	/* needed for MacOS X */
 #endif
+	x_display_string = stracpy(display ? display : cast_uchar "");
 
 	x_display = XOpenDisplay(cast_char display);
 	if (!x_display)
@@ -1304,7 +1303,6 @@ visual_found:;
 	}
 
 	x_black_pixel=BlackPixel(x_display,x_screen);
-	x_white_pixel=WhitePixel(x_display,x_screen);
 
 	gcv.function=GXcopy;
 	gcv.graphics_exposures=True;  /* we want to receive GraphicsExpose events when uninitialized area is discovered during scroll */
@@ -1400,8 +1398,8 @@ visual_found:;
 #ifdef OPENVMS
 	x_fd=vms_x11_fd(x_fd);
 #endif
-	set_handlers(x_fd,x_process_events,NULL,NULL,NULL);
-	XSync(x_display,False);
+	set_handlers(x_fd, x_process_events, NULL, NULL);
+	XSync(x_display, False);
 	X_SCHEDULE_PROCESS_EVENTS();
 	return NULL;
 }
@@ -1413,7 +1411,7 @@ static void x_shutdown_driver(void)
 #ifdef X_DEBUG
 	MESSAGE("x_shutdown_driver\n");
 #endif
-	set_handlers(x_fd,NULL,NULL,NULL,NULL);
+	set_handlers(x_fd, NULL, NULL, NULL);
 	x_free_hash_table();
 }
 
@@ -2449,8 +2447,10 @@ struct graphics_driver x_driver={
 	x_init_device,
 	x_shutdown_device,
 	x_shutdown_driver,
-	dummy_emergency_shutdown,
+	NULL,
+	NULL,
 	x_get_driver_param,
+	x_get_af_unix_name,
 	NULL,
 	NULL,
 	x_get_empty_bitmap,

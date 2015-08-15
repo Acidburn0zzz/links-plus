@@ -50,7 +50,7 @@ struct js_request {
 	struct js_request *prev;
 	int onclick_submit;	/* >=0 (znamena cislo formulare) pokud tohle je request onclick handleru u submit tlacitka nebo onsubmit handleru */
 	int onsubmit;		/* dtto pro submit handler */
-	struct event ev;	/* event, ktery se ma poslat pri uspechu */
+	struct links_event ev;	/* event, ktery se ma poslat pri uspechu */
 	int write_pos;	/* document.write position from END of document. -1 if document.write cannot be used */
 	int wrote;	/* this request called document.write */
 	int len;
@@ -88,7 +88,7 @@ struct js_request {
  */
 
 /* prototypes */
-void jsint_send_event(struct f_data_c *fd, struct event *ev);
+void jsint_send_event(struct f_data_c *fd, struct links_event *ev);
 int jsint_create(struct f_data_c *);
 void jsint_done_execution(struct f_data_c *);
 int jsint_can_access(struct f_data_c *, struct f_data_c *);
@@ -232,7 +232,7 @@ void javascript_func(struct session *ses, unsigned char *hlavne_ze_je_vecirek)
 	jsint_execute_code(current_frame(ses),code,strlen(cast_const_char code),-1,-1,-1, NULL);
 }
 
-void jsint_send_event(struct f_data_c *fd, struct event *ev)
+void jsint_send_event(struct f_data_c *fd, struct links_event *ev)
 {
 	if (!ev || !ev->b) return;
 	send_event(fd->ses, ev);
@@ -244,7 +244,7 @@ void jsint_send_event(struct f_data_c *fd, struct event *ev)
 */
 /* data je cislo formulare pro onclick submit handler, jinak se nepouziva */
 /* ev je udalost, ktera se ma znovu poslat, pokud bylo vraceno true */
-void jsint_execute_code(struct f_data_c *fd, unsigned char *code, int len, int write_pos, int onclick_submit, int onsubmit, struct event *ev)
+void jsint_execute_code(struct f_data_c *fd, unsigned char *code, int len, int write_pos, int onclick_submit, int onsubmit, struct links_event *ev)
 {
 	struct js_request *r, *q;
 
@@ -278,7 +278,7 @@ void jsint_execute_code(struct f_data_c *fd, unsigned char *code, int len, int w
 	r->onclick_submit = onclick_submit;
 	r->onsubmit = onsubmit;
 	memcpy(r->code, code, len);
-	if (ev) memcpy(&r->ev, ev, sizeof(struct event));
+	if (ev) memcpy(&r->ev, ev, sizeof(struct links_event));
 	if (write_pos == -1) {
 		struct list_head *l = (struct list_head *)fd->js->queue.prev;
 		add_to_list(*l, r);
@@ -295,7 +295,7 @@ void jsint_done_execution(struct f_data_c *fd)
 {
 	struct js_request *r, *to_exec;
 	struct js_state *js = fd->js;
-	struct event ev = { 0, 0, 0, 0 };
+	struct links_event ev = { 0, 0, 0, 0 };
 	if (!js) {
 		internal("no js in frame");
 		return;
@@ -316,7 +316,7 @@ void jsint_done_execution(struct f_data_c *fd)
 
 	/* dobehl onclick_handler a nezaplatil (vratil false), budou se dit veci */
 	if (js->active->ev.b && js->ctx->zaplatim)
-		memcpy(&ev, &js->active->ev, sizeof(struct event));
+		memcpy(&ev, &js->active->ev, sizeof(struct links_event));
 	if (js->active->onclick_submit >=0 && !js->ctx->zaplatim)
 	{
 		/* pokud je handler od stejneho formulare, jako je defered, tak odlozeny skok znicime a zlikvidujem prislusny onsubmit handler z fronty */
@@ -3935,7 +3935,7 @@ void js_downcall_vezmi_float(void *context, float f)
 
 #else
 
-void jsint_execute_code(struct f_data_c *fd, unsigned char *code, int len, int write_pos, int onclick_submit, int onsubmit, struct event *ev)
+void jsint_execute_code(struct f_data_c *fd, unsigned char *code, int len, int write_pos, int onclick_submit, int onsubmit, struct links_event *ev)
 {
 }
 

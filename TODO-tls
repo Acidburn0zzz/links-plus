@@ -1,3 +1,7 @@
+For 2.10:
+  In select.c where tls pointer is copied, copt config also?
+  Use ssl_fiinish in https.c?
+
 Enable/disable cookies doesn't take immediate effect
 
 Make configure find, include libtls

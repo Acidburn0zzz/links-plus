@@ -13,6 +13,11 @@
 #endif
 #ifdef HAVE_CONFIG_VMS_H
 #include "config-vms.h"
+#define HAVE_RAND_ADD 1
+#define HAVE_RAND_EGD 1
+#define HAVE_RAND_FILE_NAME 1
+#define HAVE_RAND_LOAD_FILE 1
+#define HAVE_RAND_WRITE_FILE 1
 #ifdef VMS_DEBUGLEVEL
 #undef DEBUGLEVEL
 #define DEBUGLEVEL VMS_DEBUGLEVEL
