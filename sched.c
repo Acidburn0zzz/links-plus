@@ -169,6 +169,7 @@ int get_keepalive_socket(struct connection *c, int *protocol_data)
 		//SSL_free(c->ssl);
 	}
 	c->tls = k->tls;
+	c->tls_config = k->tls_config;
 #endif
 	del_from_list(k);
 	mem_free(k->host);
@@ -295,6 +296,7 @@ void add_keepalive_socket(struct connection *c, ttime timeout, int protocol_data
 	k->protocol_data = protocol_data;
 #ifdef HAVE_SSL
 	k->tls = c->tls;
+	k->tls_config = c->tls_config;
 #endif
 	add_to_list(keepalive_connections, k);
 	del:
@@ -384,6 +386,7 @@ static void sort_queue(void)
 
 static void interrupt_connection(struct connection *c)
 {
+	printf("interrupt_connection\n");
 #ifdef HAVE_SSL
 	if (c->tls == DUMMY) c->tls = NULL;
 	if (c->tls) {
@@ -513,6 +516,7 @@ int is_last_try(struct connection *c)
 
 void retry_connection(struct connection *c)
 {
+	printf("retry_connection\n");
 	interrupt_connection(c);
 	if (!is_connection_restartable(c)) {
 		del_connection(c);
@@ -529,6 +533,7 @@ void retry_connection(struct connection *c)
 
 void abort_connection(struct connection *c)
 {
+	printf("abort_connection\n");
 	if (c->running) interrupt_connection(c);
 	del_connection(c);
 #ifdef DEBUG
@@ -540,6 +545,7 @@ void abort_connection(struct connection *c)
 static int try_connection(struct connection *c)
 {
 	struct h_conn *hc = NULL;
+	printf("try_connection\n");
 	if ((hc = is_host_on_list(c))) {
 		if (hc->conn >= max_connections_to_host) {
 			if (try_to_suspend_connection(c, hc->host)) return 0;

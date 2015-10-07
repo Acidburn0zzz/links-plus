@@ -342,6 +342,7 @@ static void http_send_header(struct connection *c)
 			post += 2;
 		}
 	}
+	printf("call write_to_socket for http_get_header\n");
 	write_to_socket(c, c->sock1, hdr, l, http_get_header);
 	mem_free(hdr);
 	setcstate(c, S_SENT);

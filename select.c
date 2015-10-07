@@ -868,6 +868,7 @@ void select_loop(void (*init)(void))
 		while (!terminate_loop) {
 			check_signals();
 			if (!F) {
+				printf("EVLOOP_NONBLOCK\n");
 				do_event_loop(EVLOOP_NONBLOCK);
 				check_signals();
 				redraw_all_terminals();

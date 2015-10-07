@@ -41,6 +41,7 @@ static void log_data(unsigned char *data, int len)
 static inline void log_ssl_error(int line, int ret1, int ret2)
 {
 #ifdef LOG_SSL
+	printf("In log_ssl_error\n");
 	SSL_load_error_strings();
 	ERR_print_errors_fp(stderr);
 	debug("ssl error at %d: %d, %d, %d (%s)", line, ret1, ret2, errno, strerror(errno));
@@ -331,6 +332,8 @@ static void ssl_want_io(struct connection *c)
 	int ret1, ret2, tls_err;
 	struct conn_info *b = c->newconn;
 
+    printf("ssl_want_io\n");
+
 	set_connection_timeout(c);
 
 #ifndef HAVE_NSS
@@ -338,16 +341,20 @@ static void ssl_want_io(struct connection *c)
 #endif
 	switch ((tls_err = tls_connect_socket(c->tls, *b->sock, b->real_host))) {
 		case 0:
+			printf("ssl_want_io case 0\n");
 			connected_callback(c);
 			break;
 		case TLS_READ_AGAIN:
+			printf("ssl_want_io READ_AGAIN\n");
 			set_handlers(*b->sock, (void(*)(void *))ssl_want_io, NULL, c);
 			break;
 		case TLS_WRITE_AGAIN:
+			printf("ssl_want_io WRITE\n");
 			set_handlers(*b->sock, NULL, (void(*)(void *))ssl_want_io, c);
 			break;
 		default:
 			log_ssl_error(__LINE__, ret1, ret2);
+			printf("Error in ssl_want_io\n");
 			if (strncasecmp(tls_error(c->tls), "host", 4) == 0) {
 				setcstate(c, S_SSL_HOST_ERROR);
 			} else {
@@ -383,6 +390,7 @@ static void handle_socks(struct connection *c)
 	int len = 0;
 	unsigned char *host;
 	int wr;
+	printf("handle_socks\n");
 	setcstate(c, S_SOCKS_NEG);
 	set_connection_timeout(c);
 	add_bytes_to_str(&command, &len, cast_uchar "\004\001", 2);
@@ -430,6 +438,7 @@ static void handle_socks_reply(struct connection *c)
 {
 	struct conn_info *b = c->newconn;
 	int rd;
+	printf("handle_socks_reply\n");
 	set_connection_timeout(c);
 	EINTRLOOP(rd, (int)read(*b->sock, b->socks_reply + b->socks_byte_count, sizeof b->socks_reply - b->socks_byte_count));
 	if (rd <= 0) {
@@ -482,6 +491,7 @@ static void dns_found(struct connection *c, int state)
 static void retry_connect(struct connection *c, int err)
 {
 	struct conn_info *b = c->newconn;
+	printf("retry_connect\n");
 	if (!b->addr_index) b->first_error = err;
 	b->addr_index++;
 #ifdef HAVE_SSL
@@ -513,6 +523,7 @@ static void try_connect(struct connection *c)
 	int rs;
 	struct conn_info *b = c->newconn;
 	struct host_address *addr = &b->addr.a[b->addr_index];
+	printf("try_connect\n");
 	if (addr->af == AF_INET) {
 		s = socket_and_bind(PF_INET, bind_ip_address);
 #ifdef SUPPORT_IPV6
@@ -571,6 +582,7 @@ static void try_connect(struct connection *c)
 void continue_connection(struct connection *c, int *sock, void (*func)(struct connection *))
 {
 	struct conn_info *b;
+	printf("continue_conection\n");
 	if (c->newconn)
 		internal("already making a connection");
 	b = mem_calloc(sizeof(struct conn_info));
@@ -597,6 +609,7 @@ static void connected(struct connection *c)
 	int err = 0;
 	socklen_t len = sizeof(int);
 	int rs;
+	printf("connected\n");
 #ifdef SO_ERROR
 	errno = 0;
 	EINTRLOOP(rs, getsockopt(*b->sock, SOL_SOCKET, SO_ERROR, (void *)&err, &len));
@@ -647,36 +660,40 @@ static void connected(struct connection *c)
 #ifndef HAVE_NSS
 		//if (c->no_tls) c->ssl->options |= SSL_OP_NO_TLSv1;
 #endif
-//#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
-//		{
-//			unsigned char *u = remove_proxy_prefix(c->url);
-//			unsigned char *h = get_host_name(u);
-//			if (h) {
-//				if (h[0] == '[' || !numeric_ip_address(h, NULL)
-//#ifdef SUPPORT_IPV6
-//				    || !numeric_ipv6_address(h, NULL, NULL)
-//#endif
-//				    ) goto skip_numeric_address;
-//				SSL_set_tlsext_host_name(c->ssl, h);
-//skip_numeric_address:
-//				mem_free(h);
-//			}
-//		}
-//#endif
+#ifdef SSL_CTRL_SET_TLSEXT_HOSTNAME
+		{
+			unsigned char *u = remove_proxy_prefix(c->url);
+			unsigned char *h = get_host_name(u);
+			if (h) {
+				if (h[0] == '[' || !numeric_ip_address(h, NULL)
+#ifdef SUPPORT_IPV6
+				    || !numeric_ipv6_address(h, NULL, NULL)
+#endif
+				    ) goto skip_numeric_address;
+				SSL_set_tlsext_host_name(c->ssl, h);
+skip_numeric_address:
+				mem_free(h);
+			}
+		}
+#endif
 		switch (tls_err = tls_connect_socket(c->tls, *b->sock, b->real_host)) {
 			case TLS_READ_AGAIN:
+				printf("connected READ_AGAIN\n");
 				setcstate(c, S_SSL_NEG);
 				set_handlers(*b->sock, (void(*)(void *))ssl_want_io, NULL, c);
 				return;
 			case TLS_WRITE_AGAIN:
+				printf("connected WRITE_AGAIN\n");
 				setcstate(c, S_SSL_NEG);
 				set_handlers(*b->sock, NULL, (void(*)(void *))ssl_want_io, c);
 				return;
 			case 0:
 				//Success
+				printf("connected success\n");
 				break;
 			default:
 				log_ssl_error(__LINE__, ret1, ret2);
+				printf("Error in connected\n");
 				if (strncasecmp(tls_error(c->tls), "host", 4) == 0) {
 					setcstate(c, S_SSL_HOST_ERROR);
 				} else {
@@ -684,6 +701,7 @@ static void connected(struct connection *c)
 				}
 			ssl_error:
 				//c->no_tls++;
+				printf("connected ssl_error\n");
 				retry_connect(c, S_SSL_ERROR);
 				return;
 		}
@@ -731,6 +749,7 @@ static void connected_callback(struct connection *c)
 	struct conn_info *b = c->newconn;
 	update_dns_priority(c);
 	c->newconn = NULL;
+	printf("Calling b->func\n");
 	b->func(c);
 	mem_free(b);
 }
@@ -748,6 +767,7 @@ static void write_select(struct connection *c)
 	struct write_buffer *wb;
 	int tls_err;
 	size_t *wr = malloc(sizeof(size_t));
+	printf("write_select\n");
 	if (!(wb = c->buffer)) {
 		internal("write socket has no buffer");
 		setcstate(c, S_INTERNAL);
@@ -756,7 +776,7 @@ static void write_select(struct connection *c)
 	}
 	set_connection_timeout(c);
 	/*printf("ws: %d\n",wb->len-wb->pos);
-	for (wr = wb->pos; wr < wb->len; wr++) printf("%c", wb->data[wr]);
+	for (*wr = wb->pos; *wr < wb->len; *wr++) printf("%c", wb->data[*wr]);
 	printf("-\n");*/
 
 #ifdef HAVE_SSL
@@ -766,11 +786,13 @@ static void write_select(struct connection *c)
 				// ERROR
 				setcstate(c, S_SSL_ERROR);
 				log_ssl_error(__LINE__, *wr, 0);
+				printf("Error in write_select\n");
 				retry_connection(c);
 				free(wr);
 				return;
 			} else {
 				// TLS_[READ|WRITE]_AGAIN
+				printf("write_select: tls_write: %d\n", tls_err);
 				free(wr);
 				return;
 			}
@@ -778,6 +800,7 @@ static void write_select(struct connection *c)
 	} else
 #endif
 	{
+		printf("write_select: shouldn't be here with SSL\n");
 		EINTRLOOP(*wr, (int)write(wb->sock, wb->data + wb->pos, wb->len - wb->pos));
 		if (*wr <= 0) {
 #if defined(ATHEOS) || defined(DOS)
@@ -807,6 +830,7 @@ static void write_select(struct connection *c)
 void write_to_socket(struct connection *c, int s, unsigned char *data, int len, void (*write_func)(struct connection *))
 {
 	struct write_buffer *wb;
+	printf("write_to_socket\n");
 	log_data(data, len);
 	if ((unsigned)len > MAXINT - sizeof(struct write_buffer)) overalloc();
 	wb = mem_alloc(sizeof(struct write_buffer) + len);
@@ -829,6 +853,7 @@ static void read_select(struct connection *c)
 	struct read_buffer *rb;
 	int tls_err;
 	size_t *rd = malloc(sizeof(size_t));
+	printf("read_select\n");
 	*rd = 0;
 	if (!(rb = c->buffer)) {
 		internal("read socket has no buffer");
@@ -862,6 +887,7 @@ read_more:
 			// ERROR
 			setcstate(c, S_SSL_ERROR);
 			log_ssl_error(__LINE__, *rd, 0);
+            printf("Error in read_select\n");
 			/*mem_free(rb);*/
 			retry_connection(c);
 			free(rd);
@@ -922,6 +948,7 @@ success:
 struct read_buffer *alloc_read_buffer(struct connection *c)
 {
 	struct read_buffer *rb;
+	printf("read_buffer\n");
 	rb = mem_alloc(sizeof(struct read_buffer) + READ_SIZE);
 	memset(rb, 0, sizeof(struct read_buffer));
 	return rb;
@@ -929,6 +956,7 @@ struct read_buffer *alloc_read_buffer(struct connection *c)
 
 void read_from_socket(struct connection *c, int s, struct read_buffer *buf, void (*read_func)(struct connection *, struct read_buffer *))
 {
+	printf("read_from_socket\n");
 	buf->done = read_func;
 	buf->sock = s;
 	if (c->buffer && buf != c->buffer) mem_free(c->buffer);
@@ -938,6 +966,7 @@ void read_from_socket(struct connection *c, int s, struct read_buffer *buf, void
 
 void kill_buffer_data(struct read_buffer *rb, int n)
 {
+	printf("kill_buffer_data\n");
 	if (n > rb->len || n < 0) {
 		internal("called kill_buffer_data with bad value");
 		rb->len = 0;
